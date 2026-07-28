@@ -1,0 +1,7 @@
+APP_NAME = "SAADHYA"
+
+VERSION = "1.0"
+
+MODE = "Development"
+
+LOG_LEVEL = "INFO"

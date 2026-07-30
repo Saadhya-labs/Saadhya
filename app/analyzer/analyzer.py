@@ -1,3 +1,4 @@
+from app.models.analysis_report import AnalysisReport
 from app.data.market_data import MarketData
 from app.indicators.ema import EMAIndicator
 from app.indicators.rsi import RSIIndicator
@@ -18,7 +19,7 @@ class StockAnalyzer:
         self.vwap = VWAPIndicator()
         self.supertrend = SuperTrendIndicator()
 
-        self.engine = RecommendationEngine()
+        self.recommendation_engine = RecommendationEngine()
 
     def analyze(self, symbol):
 
@@ -37,6 +38,8 @@ class StockAnalyzer:
 
         latest = df.iloc[-1]
 
+        price = latest["Close"]
+
         # Generate signals
         signals = {
             "EMA": self.ema.signal(latest),
@@ -46,11 +49,28 @@ class StockAnalyzer:
             "SUPERTREND": self.supertrend.signal(latest),
         }
 
-        recommendation = self.engine.generate(signals)
+        rec = self.recommendation_engine.generate(signals)
 
-        return {
-            "symbol": symbol,
-            "price": float(latest["Close"]),
-            "signals": signals,
-            "recommendation": recommendation,
-        }
+        return AnalysisReport(
+    symbol=symbol,
+    price=float(price),
+    signals=signals,
+    recommendation=rec["recommendation"],
+    confidence=rec["confidence"],
+    direction=rec["direction"],
+    opportunity_score=rec["confidence"],
+    risk=rec["risk"],
+    holding=rec["holding"],
+    simple_reasons=rec["simple_reasons"],
+    technical_reasons=rec["technical_reasons"],
+    suggested_action=(
+        "Consider buying gradually"
+        if rec["direction"] == "BUY"
+        else "Avoid or wait for improvement"
+    ),
+    invalidation=[
+        "Trend reversal",
+        "Loss of momentum",
+        "Price moves below support"
+    ]
+)

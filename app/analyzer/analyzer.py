@@ -1,76 +1,111 @@
-from app.models.analysis_report import AnalysisReport
-from app.data.market_data import MarketData
-from app.indicators.ema import EMAIndicator
-from app.indicators.rsi import RSIIndicator
-from app.indicators.macd import MACDIndicator
-from app.indicators.vwap import VWAPIndicator
-from app.indicators.supertrend import SuperTrendIndicator
+from app.strategy.signal_engine import SignalEngine
 from app.strategy.recommendation_engine import RecommendationEngine
+from app.ranking.opportunity_score import OpportunityScore
+from app.models.analysis_report import AnalysisReport
+
 
 
 class StockAnalyzer:
 
-    def __init__(self):
-        self.market = MarketData()
 
-        self.ema = EMAIndicator()
-        self.rsi = RSIIndicator()
-        self.macd = MACDIndicator()
-        self.vwap = VWAPIndicator()
-        self.supertrend = SuperTrendIndicator()
+
+    def __init__(
+        self,
+        stock_provider
+    ):
+
+
+        self.stock_provider = stock_provider
+
+        self.signal_engine = SignalEngine()
 
         self.recommendation_engine = RecommendationEngine()
 
-    def analyze(self, symbol):
+        self.opportunity_score = OpportunityScore()
 
-        # Download historical data
-        df = self.market.get_history(symbol)
 
-        if df.empty:
-            return None
 
-        # Calculate indicators
-        df = self.ema.calculate(df)
-        df = self.rsi.calculate(df)
-        df = self.macd.calculate(df)
-        df = self.vwap.calculate(df)
-        df = self.supertrend.calculate(df)
+    def analyze(
+        self,
+        symbol
+    ):
 
-        latest = df.iloc[-1]
 
-        price = latest["Close"]
+        df = self.stock_provider.get_history(
+            symbol
+        )
 
-        # Generate signals
-        signals = {
-            "EMA": self.ema.signal(latest),
-            "RSI": self.rsi.signal(latest["RSI"]),
-            "MACD": self.macd.signal(latest),
-            "VWAP": self.vwap.signal(latest),
-            "SUPERTREND": self.supertrend.signal(latest),
-        }
 
-        rec = self.recommendation_engine.generate(signals)
+        price = self.stock_provider.get_price(
+            symbol
+        )
 
-        return AnalysisReport(
-    symbol=symbol,
-    price=float(price),
-    signals=signals,
-    recommendation=rec["recommendation"],
-    confidence=rec["confidence"],
-    direction=rec["direction"],
-    opportunity_score=rec["confidence"],
-    risk=rec["risk"],
-    holding=rec["holding"],
-    simple_reasons=rec["simple_reasons"],
-    technical_reasons=rec["technical_reasons"],
-    suggested_action=(
-        "Consider buying gradually"
-        if rec["direction"] == "BUY"
-        else "Avoid or wait for improvement"
-    ),
-    invalidation=[
-        "Trend reversal",
-        "Loss of momentum",
-        "Price moves below support"
-    ]
-)
+
+        signals = self.signal_engine.generate(
+            df
+        )
+
+
+        recommendation = self.recommendation_engine.generate(
+            signals
+        )
+
+
+        report = AnalysisReport(
+
+            symbol=symbol,
+
+            price=price,
+
+            signals=signals,
+
+            recommendation=recommendation["recommendation"],
+
+            confidence=recommendation["confidence"],
+
+            direction=recommendation["direction"],
+
+            opportunity_score=0,
+
+            risk=recommendation.get(
+                "risk",
+                "MEDIUM"
+            ),
+
+            holding=recommendation.get(
+                "holding",
+                "Swing"
+            ),
+
+            simple_reasons=recommendation.get(
+                "simple_reasons",
+                []
+            ),
+
+            technical_reasons=recommendation.get(
+                "technical_reasons",
+                []
+            ),
+
+            suggested_action=recommendation.get(
+                "suggested_action",
+                ""
+            ),
+
+            invalidation=recommendation.get(
+                "invalidation",
+                []
+            )
+
+        )
+
+
+        score = self.opportunity_score.calculate(
+            report
+        )
+
+
+        report.opportunity_score = score
+
+
+        return report

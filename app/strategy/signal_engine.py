@@ -1,42 +1,113 @@
-from typing import Dict
+from app.indicators.ema import EMAIndicator
+from app.indicators.rsi import RSIIndicator
+from app.indicators.macd import MACDIndicator
+from app.indicators.vwap import VWAPIndicator
+from app.indicators.supertrend import SuperTrendIndicator
+
 
 
 class SignalEngine:
-    def generate(self, signals: Dict[str, str]) -> dict:
-        """
-        Combines indicator signals into one recommendation.
-        """
 
-        score = 0
 
-        for signal in signals.values():
-            if signal == "BUY":
-                score += 1
+    def __init__(self):
 
-            elif signal == "SELL":
-                score -= 1
+        self.ema = EMAIndicator()
 
-        total = len(signals)
+        self.rsi = RSIIndicator()
 
-        confidence = round((abs(score) / total) * 100)
+        self.macd = MACDIndicator()
 
-        if score >= 4:
-            recommendation = "STRONG BUY"
+        self.vwap = VWAPIndicator()
 
-        elif score >= 2:
-            recommendation = "BUY"
+        self.supertrend = SuperTrendIndicator()
 
-        elif score <= -4:
-            recommendation = "STRONG SELL"
 
-        elif score <= -2:
-            recommendation = "SELL"
+
+    def generate(
+        self,
+        data
+    ):
+
+
+        signals = {}
+
+
+        # EMA
+
+        ema_data = self.ema.calculate(data)
+
+        ema_row = ema_data.iloc[-1]
+
+        signals["EMA"] = self.ema.signal(
+            ema_row
+        )
+
+
+
+        # RSI
+
+        rsi_data = self.rsi.calculate(data)
+
+        rsi_value = rsi_data.iloc[-1]["RSI"]
+
+        signals["RSI"] = self.rsi.signal(
+            rsi_value
+        )
+
+
+
+        # MACD
+
+        macd_data = self.macd.calculate(data)
+
+        macd_row = macd_data.iloc[-1]
+
+
+        if (
+            macd_row["MACD"]
+            >
+            macd_row["MACD_SIGNAL"]
+        ):
+
+            signals["MACD"] = "BUY"
+
+
+        elif (
+            macd_row["MACD"]
+            <
+            macd_row["MACD_SIGNAL"]
+        ):
+
+            signals["MACD"] = "SELL"
+
 
         else:
-            recommendation = "HOLD"
 
-        return {
-            "recommendation": recommendation,
-            "confidence": confidence,
-            "score": score
-        }
+            signals["MACD"] = "HOLD"
+
+
+
+        # VWAP
+
+        vwap_data = self.vwap.calculate(data)
+
+        vwap_row = vwap_data.iloc[-1]
+
+        signals["VWAP"] = self.vwap.signal(
+            vwap_row
+        )
+
+
+
+        # SuperTrend
+
+        st_data = self.supertrend.calculate(data)
+
+        st_row = st_data.iloc[-1]
+
+        signals["SUPERTREND"] = self.supertrend.signal(
+            st_row
+        )
+
+
+        return signals

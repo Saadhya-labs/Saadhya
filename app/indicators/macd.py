@@ -1,33 +1,78 @@
 import pandas as pd
-import pandas_ta as ta
+
 
 
 class MACDIndicator:
-    def __init__(self, fast=12, slow=26, signal=9):
+
+
+    def __init__(
+        self,
+        fast=12,
+        slow=26,
+        signal_period=9
+    ):
+
         self.fast = fast
+
         self.slow = slow
-        self.signal_period = signal
 
-    def calculate(self, data: pd.DataFrame) -> pd.DataFrame:
-        data = data.copy()
+        self.signal_period = signal_period
 
-        macd = ta.macd(
-            data["Close"],
-            fast=self.fast,
-            slow=self.slow,
-            signal=self.signal_period
+
+
+    def calculate(
+        self,
+        data
+    ):
+
+
+        df = data.copy()
+
+
+        close = df["Close"]
+
+
+        fast_ema = (
+            close
+            .ewm(
+                span=self.fast,
+                adjust=False
+            )
+            .mean()
         )
 
-        data["MACD"] = macd[f"MACD_{self.fast}_{self.slow}_{self.signal_period}"]
-        data["MACD_SIGNAL"] = macd[f"MACDs_{self.fast}_{self.slow}_{self.signal_period}"]
-        data["MACD_HIST"] = macd[f"MACDh_{self.fast}_{self.slow}_{self.signal_period}"]
 
-        return data
+        slow_ema = (
+            close
+            .ewm(
+                span=self.slow,
+                adjust=False
+            )
+            .mean()
+        )
 
-    def signal(self, row):
-        if row["MACD"] > row["MACD_SIGNAL"]:
-            return "BUY"
-        elif row["MACD"] < row["MACD_SIGNAL"]:
-            return "SELL"
 
-        return "HOLD"
+        macd_line = fast_ema - slow_ema
+
+
+        signal_line = (
+            macd_line
+            .ewm(
+                span=self.signal_period,
+                adjust=False
+            )
+            .mean()
+        )
+
+
+        histogram = macd_line - signal_line
+
+
+        df["MACD"] = macd_line
+
+        df["MACD_SIGNAL"] = signal_line
+
+        df["MACD_HIST"] = histogram
+
+
+        return df

@@ -6,8 +6,6 @@ from app.options.models import OptionContract
 @dataclass
 class OptionTradeCandidate:
 
-    symbol: str
-
     option_contract: OptionContract
 
     score: int
@@ -23,3 +21,9 @@ class OptionTradeCandidate:
     risk_reward: float
 
     confidence: int
+
+
+    @property
+    def symbol(self):
+
+        return self.option_contract.symbol

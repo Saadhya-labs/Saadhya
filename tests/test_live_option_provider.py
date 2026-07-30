@@ -1,39 +1,17 @@
+import pytest
+import requests
+
 from app.data.providers.nse_option_provider import NSEOptionProvider
 
 
+def test_live_option_provider():
 
-provider = NSEOptionProvider()
+    provider = NSEOptionProvider()
 
+    try:
+        options = provider.get_option_chain("HAL")
 
+    except requests.HTTPError as exc:
+        pytest.skip(f"NSE rejected the request: {exc}")
 
-print("=" * 60)
-print("LIVE OPTION PROVIDER TEST")
-print("=" * 60)
-
-
-
-options = provider.get_option_chain(
-
-    "HAL"
-
-)
-
-
-
-print()
-
-print(
-
-    "Contracts:",
-
-    len(options)
-
-)
-
-
-
-for option in options[:5]:
-
-    print()
-
-    print(option)
+    assert len(options) > 0

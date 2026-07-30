@@ -2,36 +2,38 @@ from app.scanner.ranked_scanner import RankedScanner
 from app.scanner.report_generator import ReportGenerator
 
 
-symbols = [
-    "HAL.NS",
-    "TCS.NS",
-    "INFY.NS"
-]
+def test_report_generator_creates_reports():
 
+    symbols = [
+        "HAL.NS",
+        "TCS.NS",
+        "INFY.NS"
+    ]
 
-scanner = RankedScanner()
+    scanner = RankedScanner()
 
-results = scanner.scan(symbols)
+    results = scanner.scan(
+        symbols
+    )
 
+    generator = ReportGenerator()
 
-generator = ReportGenerator()
+    reports = generator.generate(
+        results
+    )
 
-reports = generator.generate(results)
+    assert reports
 
+    for item in reports:
 
-print()
-print("=" * 60)
-print("SAADHYA OPPORTUNITY REPORT")
-print("=" * 60)
+        assert item["symbol"]
 
+        assert item["score"] >= 0
 
-for item in reports:
+        assert item["recommendation"]
 
-    print()
-    print(item["symbol"])
-    print("Score:", item["score"])
-    print("Recommendation:", item["recommendation"])
-    print("Action:", item["decision"]["action"])
-    print("Entry:", item["decision"].get("entry"))
-    print("Target:", item["decision"].get("target"))
-    print("Stop:", item["decision"].get("stop_loss"))
+        assert item["confidence"] >= 0
+
+        assert "decision" in item
+
+        assert "signals" in item

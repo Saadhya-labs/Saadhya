@@ -1,41 +1,54 @@
 class OpportunityScore:
 
-    def calculate(self, report):
+    def calculate(
+        self,
+        signals,
+        recommendation=None
+    ):
+
+        if recommendation is None:
+
+            report = signals
+
+            signals = report.signals
+
+            recommendation = {
+                "risk": report.risk,
+                "confidence": report.confidence
+            }
 
         breakdown = {}
 
         # -------------------------
-        # Trend Score (25)
+        # Trend (25)
         # -------------------------
 
         trend = 0
 
-        if report.signals.get("EMA") == "BUY":
+        if signals.get("EMA") == "BUY":
             trend += 12
 
-        if report.signals.get("SUPERTREND") == "BUY":
+        if signals.get("SUPERTREND") == "BUY":
             trend += 13
 
         breakdown["trend"] = trend
 
-
         # -------------------------
-        # Momentum Score (20)
+        # Momentum (20)
         # -------------------------
 
         momentum = 0
 
-        if report.signals.get("MACD") == "BUY":
+        if signals.get("MACD") == "BUY":
             momentum += 15
 
-        if report.signals.get("RSI") == "BUY":
+        if signals.get("RSI") == "BUY":
             momentum += 5
 
-        elif report.signals.get("RSI") == "HOLD":
+        elif signals.get("RSI") == "HOLD":
             momentum += 3
 
         breakdown["momentum"] = momentum
-
 
         # -------------------------
         # Indicator Agreement (20)
@@ -44,7 +57,7 @@ class OpportunityScore:
         bullish = 0
         bearish = 0
 
-        for signal in report.signals.values():
+        for signal in signals.values():
 
             if signal == "BUY":
                 bullish += 1
@@ -52,44 +65,59 @@ class OpportunityScore:
             elif signal == "SELL":
                 bearish += 1
 
+        agreement = max(
+            bullish,
+            bearish
+        ) * 5
 
-        agreement = max(bullish, bearish) * 5
-
-        breakdown["agreement"] = min(agreement, 20)
-
+        breakdown["agreement"] = min(
+            agreement,
+            20
+        )
 
         # -------------------------
-        # Risk Score (10)
+        # Risk (10)
         # -------------------------
 
-        if report.risk == "LOW":
+        risk = 0
+
+        if recommendation["risk"] == "LOW":
             risk = 10
 
-        elif report.risk == "MEDIUM":
+        elif recommendation["risk"] == "MEDIUM":
             risk = 5
-
-        else:
-            risk = 0
 
         breakdown["risk"] = risk
 
-
         # -------------------------
-        # Confidence Score (25)
+        # Confidence (25)
         # -------------------------
 
         confidence = min(
-            int(report.confidence * 0.25),
+
+            int(
+                recommendation["confidence"] * 0.25
+            ),
+
             25
+
         )
 
         breakdown["confidence"] = confidence
 
+        total = sum(
 
-        total = sum(breakdown.values())
+            breakdown.values()
 
+        )
 
         return {
-            "total": min(total, 100),
+
+            "total": min(
+                total,
+                100
+            ),
+
             "breakdown": breakdown
+
         }

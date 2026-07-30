@@ -1,26 +1,30 @@
 from app.strategy.recommendation_engine import RecommendationEngine
 
-signals = {
-    "EMA": "BUY",
-    "RSI": "HOLD",
-    "MACD": "BUY",
-    "VWAP": "BUY",
-    "SUPERTREND": "BUY",
-}
 
-engine = RecommendationEngine()
+def test_recommendation_engine_generates_output():
 
-result = engine.generate(signals)
+    signals = {
+        "EMA": "BUY",
+        "RSI": "HOLD",
+        "MACD": "BUY",
+        "VWAP": "BUY",
+        "SUPERTREND": "BUY",
+    }
 
-print()
+    engine = RecommendationEngine()
 
-print("Recommendation :", result["recommendation"])
-print("Confidence     :", result["confidence"])
-print("Score          :", result["score"])
+    result = engine.generate(signals)
 
-print()
+    assert result["recommendation"] == "STRONG BUY"
 
-print("Reasons")
+    assert result["confidence"] > 0
 
-for reason in result["reasons"]:
-    print("-", reason)
+    assert result["score"] > 0
+
+    assert result["technical_reasons"]
+
+    assert result["simple_reasons"]
+
+    assert result["risk"] == "LOW"
+
+    assert result["direction"] == "BUY"

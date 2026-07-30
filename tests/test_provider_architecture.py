@@ -1,53 +1,28 @@
+import pytest
+import requests
+
 from app.data.providers.mock_option_provider import MockOptionProvider
 from app.data.providers.nse_option_provider import NSEOptionProvider
 
 
+def test_mock_option_provider():
 
-print("="*60)
+    provider = MockOptionProvider()
 
-print(
-    "SAADHYA DATA PROVIDER TEST"
-)
+    options = provider.get_option_chain("HAL")
 
-print("="*60)
-
-
-
-mock = MockOptionProvider()
+    assert len(options) > 0
+    assert options[0].symbol == "HAL"
 
 
+def test_nse_option_provider():
 
-options = mock.get_option_chain(
-    "HAL"
-)
+    provider = NSEOptionProvider()
 
+    try:
+        options = provider.get_option_chain("HAL")
 
+    except requests.HTTPError as exc:
+        pytest.skip(f"NSE rejected the request: {exc}")
 
-for option in options:
-
-    print()
-
-    print(
-        option
-    )
-
-
-
-print()
-
-print(
-    "NSE Provider Status:"
-)
-
-
-
-try:
-
-    NSEOptionProvider().get_option_chain(
-        "HAL"
-    )
-
-
-except NotImplementedError as e:
-
-    print(e)
+    assert len(options) > 0

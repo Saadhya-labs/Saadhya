@@ -2,33 +2,34 @@ from app.analyzer.analyzer import StockAnalyzer
 from app.ranking.opportunity_score import OpportunityScore
 
 
-analyzer = StockAnalyzer()
+def test_opportunity_score_generation():
 
-report = analyzer.analyze("HAL.NS")
+    analyzer = StockAnalyzer()
 
-engine = OpportunityScore()
+    report = analyzer.analyze(
+        "HAL.NS"
+    )
 
-score = engine.calculate(report)
+    engine = OpportunityScore()
 
+    score = engine.calculate(
+        report
+    )
 
-print("=" * 50)
-print(report.symbol)
-print("=" * 50)
+    assert report.symbol == "HAL.NS"
 
-print()
-print("Recommendation:")
-print(report.recommendation)
+    assert report.recommendation
 
-print()
-print("Confidence:")
-print(report.confidence)
+    assert report.confidence >= 0
 
-print()
-print("Opportunity Score:")
-print(score)
+    assert score["total"] <= 100
 
-print()
-print("Signals:")
+    assert "breakdown" in score
 
-for key, value in report.signals.items():
-    print(f"{key:<15}{value}")
+    assert set(score["breakdown"]) == {
+        "trend",
+        "momentum",
+        "agreement",
+        "risk",
+        "confidence",
+    }

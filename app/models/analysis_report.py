@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Any, Dict, List
 
 
 @dataclass
@@ -17,7 +17,7 @@ class AnalysisReport:
 
     direction: str
 
-    opportunity_score: int
+    opportunity_score: Dict[str, Any]
 
     risk: str
 

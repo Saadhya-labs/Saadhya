@@ -2,28 +2,28 @@ from app.analyzer.analyzer import StockAnalyzer
 from app.strategy.trade_decision import TradeDecision
 
 
-analyzer = StockAnalyzer()
+def test_trade_decision_generation():
 
-report = analyzer.analyze("HAL.NS")
+    analyzer = StockAnalyzer()
 
+    report = analyzer.analyze(
+        "HAL.NS"
+    )
 
-engine = TradeDecision()
+    engine = TradeDecision()
 
-decision = engine.calculate(report)
+    decision = engine.calculate(
+        report
+    )
 
+    assert report.symbol == "HAL.NS"
 
-print("=" * 50)
+    assert report.recommendation
 
-print(report.symbol)
+    assert isinstance(decision, dict)
 
-print("=" * 50)
+    assert "action" in decision
 
-print()
-
-print("Recommendation:")
-print(report.recommendation)
-
-print()
-
-print("Decision:")
-print(decision)
+    # Optional fields may be absent depending on the action,
+    # but the decision object itself must always exist.
+    assert decision["action"]

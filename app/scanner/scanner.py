@@ -28,7 +28,7 @@ class StockScanner:
 
         # Sort by confidence (highest first)
         results.sort(
-            key=lambda x: x["recommendation"]["confidence"],
+            key=lambda x: x.confidence,
             reverse=True
         )
 

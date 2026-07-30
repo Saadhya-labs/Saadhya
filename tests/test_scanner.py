@@ -1,20 +1,20 @@
 from app.scanner.scanner import StockScanner
 
-scanner = StockScanner()
 
-results = scanner.scan()
+def test_scanner_runs():
 
-print()
-print("=" * 75)
-print("TODAY'S MARKET SCAN")
-print("=" * 75)
+    scanner = StockScanner()
 
-for stock in results:
+    results = scanner.scan()
 
-    rec = stock["recommendation"]
+    assert results
 
-    print(
-        f"{stock['symbol']:18}"
-        f"{rec['recommendation']:15}"
-        f"{rec['confidence']}%"
-    )
+    for stock in results:
+
+        assert stock.symbol
+
+        assert stock.recommendation
+
+        assert stock.confidence >= 0
+
+        assert stock.opportunity_score["total"] <= 100

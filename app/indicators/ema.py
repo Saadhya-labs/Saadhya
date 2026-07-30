@@ -2,31 +2,30 @@ import pandas as pd
 
 
 class EMAIndicator:
-    """
-    Calculates Exponential Moving Averages and detects crossovers.
-    """
+    def __init__(self, short_period=9, long_period=21):
+        self.short_period = short_period
+        self.long_period = long_period
 
-    def __init__(self, data: pd.DataFrame):
-        self.data = data.copy()
+    def calculate(self, data: pd.DataFrame) -> pd.DataFrame:
+        data = data.copy()
 
-    def calculate(self, short_period=9, long_period=21):
-        self.data["EMA_Short"] = (
-            self.data["Close"].ewm(span=short_period, adjust=False).mean()
-        )
+        data["EMA_Short"] = data["Close"].ewm(
+            span=self.short_period,
+            adjust=False
+        ).mean()
 
-        self.data["EMA_Long"] = (
-            self.data["Close"].ewm(span=long_period, adjust=False).mean()
-        )
+        data["EMA_Long"] = data["Close"].ewm(
+            span=self.long_period,
+            adjust=False
+        ).mean()
 
-        return self.data
+        return data
 
-    def signal(self):
-        latest = self.data.iloc[-1]
+    def signal(self, row):
+        if row["EMA_Short"] > row["EMA_Long"]:
+            return "BUY"
 
-        if latest["EMA_Short"] > latest["EMA_Long"]:
-            return "BULLISH"
+        elif row["EMA_Short"] < row["EMA_Long"]:
+            return "SELL"
 
-        if latest["EMA_Short"] < latest["EMA_Long"]:
-            return "BEARISH"
-
-        return "NEUTRAL"
+        return "HOLD"

@@ -6,12 +6,6 @@ NSE_STOCKS = [
     "ICICIBANK.NS",
     "SBIN.NS",
     "LT.NS",
-    "AXISBANK.NS",
     "BEL.NS",
     "HAL.NS",
-    "TRENT.NS",
-    "TATAMOTORS.NS",
-    "BAJFINANCE.NS",
-    "ADANIPORTS.NS",
-    ...
 ]

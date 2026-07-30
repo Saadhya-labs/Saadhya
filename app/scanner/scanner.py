@@ -1,9 +1,35 @@
-for stock in NSE_STOCKS:
+from app.analyzer.analyzer import StockAnalyzer
+from app.scanner.universe import NSE_STOCKS
 
-    download data
 
-    calculate indicators
+class StockScanner:
 
-    recommendation engine
+    def __init__(self):
+        self.analyzer = StockAnalyzer()
 
-    store score
+    def scan(self):
+
+        results = []
+
+        print("\nScanning market...\n")
+
+        for symbol in NSE_STOCKS:
+
+            try:
+                print(f"Analyzing {symbol}")
+
+                result = self.analyzer.analyze(symbol)
+
+                if result is not None:
+                    results.append(result)
+
+            except Exception as e:
+                print(f"{symbol}: {e}")
+
+        # Sort by confidence (highest first)
+        results.sort(
+            key=lambda x: x["recommendation"]["confidence"],
+            reverse=True
+        )
+
+        return results

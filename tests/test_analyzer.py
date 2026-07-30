@@ -1,5 +1,5 @@
 from app.analyzer.analyzer import StockAnalyzer
-from app.data.providers.mock_stock_provider import MockStockProvider
+from app.config.provider_factory import get_stock_provider
 
 
 
@@ -13,7 +13,16 @@ print("=" * 60)
 
 
 
-provider = MockStockProvider()
+provider = get_stock_provider()
+
+
+
+print()
+
+print(
+    "Provider:",
+    type(provider).__name__
+)
 
 
 
@@ -39,6 +48,7 @@ print(
     "Symbol:",
     result.symbol
 )
+
 
 
 print(

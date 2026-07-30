@@ -1,31 +1,19 @@
 from app.config.settings import DATA_MODE
 
-
-from app.config.provider_factory import get_stock_provider
-
-
-# Future
-# from app.data.providers.nse_stock_provider import NSEStockProvider
-
+from app.data.providers.mock_stock_provider import MockStockProvider
+from app.data.providers.nse_stock_provider import NSEStockProvider
 
 
 def get_stock_provider():
 
+    mode = DATA_MODE.upper()
 
-    if DATA_MODE == "MOCK":
-
+    if mode == "MOCK":
         return MockStockProvider()
 
-
-
-    # Future live mode
-
-    # elif DATA_MODE == "LIVE":
-    #
-    #     return NSEStockProvider()
-
-
+    if mode == "LIVE":
+        return NSEStockProvider()
 
     raise ValueError(
-        "Invalid DATA_MODE"
+        f"Unsupported DATA_MODE: {DATA_MODE}"
     )

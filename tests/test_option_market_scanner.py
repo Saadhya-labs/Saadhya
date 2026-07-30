@@ -1,6 +1,8 @@
 from app.scanner.option_market_scanner import OptionMarketScanner
 from app.data.mock_option_provider import MockOptionProvider
 from app.options.scanner import OptionScanner
+from app.strategy.probability_engine import ProbabilityEngine
+
 
 
 class DummyStockScanner:
@@ -28,17 +30,17 @@ class DummyAnalyzer:
     def analyze(self, symbol):
 
         class Report:
-            pass
+
+            direction = "BUY"
 
 
-        report = Report()
-
-        report.direction = "BUY"
-        report.confidence = 90
-        report.symbol = symbol
+        return Report()
 
 
-        return report
+
+class DummyMarketRegime:
+
+    regime = "BULLISH"
 
 
 
@@ -50,7 +52,11 @@ scanner = OptionMarketScanner(
 
     MockOptionProvider(),
 
-    OptionScanner()
+    OptionScanner(),
+
+    ProbabilityEngine(),
+
+    DummyMarketRegime()
 
 )
 
@@ -61,23 +67,18 @@ results = scanner.scan()
 
 
 print("="*60)
+
 print("SAADHYA DAILY OPTION SCAN")
+
 print("="*60)
 
 
 
 for item in results:
 
+
     print()
 
     print(
-        item["symbol"]
-    )
-
-    print(
-        item["direction"]
-    )
-
-    print(
-        item["option"]
+        item["formatted_report"]
     )

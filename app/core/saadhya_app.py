@@ -1,19 +1,24 @@
 from app.config.settings import Settings
 from app.broker.broker_factory import BrokerFactory
 from app.analyzer.analyzer import StockAnalyzer
+from app.reports.recommendation_report import RecommendationReport
 
 
 class SaadhyaApp:
 
+
     def __init__(self):
 
-        self.settings = Settings()
+        self.settings = Settings
 
         self.broker = BrokerFactory.create(
             self.settings.BROKER
         )
 
         self.analyzer = StockAnalyzer()
+
+        self.report_engine = RecommendationReport()
+
 
 
     def analyze(
@@ -29,6 +34,18 @@ class SaadhyaApp:
         return self.analyzer.analyze(
             symbol
         )
+
+
+
+    def generate_report(
+        self,
+        opportunities
+    ):
+
+        return self.report_engine.generate(
+            opportunities
+        )
+
 
 
     def place_trade(

@@ -1,93 +1,110 @@
-from app.portfolio.paper_trading_engine import PaperTradingEngine
+from datetime import datetime
+
+from app.portfolio.trade import Trade
 from app.portfolio.trade_journal import TradeJournal
 from app.portfolio.performance import PerformanceAnalyzer
 
 
-engine = PaperTradingEngine()
 
-journal = TradeJournal()
-
-
-trade = engine.open_trade(
-
-    symbol="HAL.NS",
-
-    direction="BUY",
-
-    quantity=200,
-
-    entry_price=4500,
-
-    stop_loss=4400,
-
-    target=4700
-
-)
-
-engine.close_trade(
-
-    trade,
-
-    4600
-
-)
-
-journal.record_trade(
-
-    trade
-
-)
+def test_performance_analyzer():
 
 
-trade = engine.open_trade(
-
-    symbol="TCS.NS",
-
-    direction="BUY",
-
-    quantity=50,
-
-    entry_price=3500,
-
-    stop_loss=3450,
-
-    target=3600
-
-)
-
-engine.close_trade(
-
-    trade,
-
-    3440
-
-)
-
-journal.record_trade(
-
-    trade
-
-)
+    journal = TradeJournal()
 
 
-report = PerformanceAnalyzer(
+    trades = [
 
-    journal
+        Trade(
 
-).summary()
+            symbol="HAL",
+
+            direction="BUY",
+
+            quantity=100,
+
+            entry_price=100,
+
+            stop_loss=90,
+
+            target=120,
+
+            entry_time=datetime.now(),
+
+            status="CLOSED",
+
+            pnl=1000
+
+        ),
 
 
-print("=" * 60)
-print("SAADHYA PERFORMANCE REPORT")
-print("=" * 60)
-print()
+        Trade(
 
-for key, value in report.items():
+            symbol="RELIANCE",
 
-    print(
+            direction="BUY",
 
-        f"{key:<20}",
+            quantity=100,
 
-        value
+            entry_price=100,
+
+            stop_loss=90,
+
+            target=120,
+
+            entry_time=datetime.now(),
+
+            status="CLOSED",
+
+            pnl=-400
+
+        ),
+
+
+        Trade(
+
+            symbol="TATA",
+
+            direction="BUY",
+
+            quantity=100,
+
+            entry_price=100,
+
+            stop_loss=90,
+
+            target=120,
+
+            entry_time=datetime.now(),
+
+            status="CLOSED",
+
+            pnl=500
+
+        )
+
+    ]
+
+
+    for trade in trades:
+
+        journal.record(trade)
+
+
+
+    analyzer = PerformanceAnalyzer(
+
+        journal
 
     )
+
+
+    report = analyzer.summary()
+
+
+    assert report["trades"] == 3
+
+    assert report["net_profit"] == 1100
+
+    assert report["win_rate"] == 66.67
+
+    assert report["max_drawdown"] == 400

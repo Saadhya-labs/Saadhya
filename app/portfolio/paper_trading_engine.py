@@ -9,6 +9,48 @@ class PaperTradingEngine:
 
         self.trades = []
 
+
+    def execute(
+
+        self,
+
+        candidate,
+
+        quantity
+
+    ):
+
+        contract = candidate.option_contract
+
+
+        trade = Trade(
+
+            symbol=contract.symbol,
+
+            direction=candidate.recommendation,
+
+            quantity=quantity,
+
+            entry_price=candidate.entry,
+
+            stop_loss=candidate.stop_loss,
+
+            target=candidate.target,
+
+            entry_time=datetime.now()
+
+        )
+
+
+        self.trades.append(
+            trade
+        )
+
+
+        return trade
+
+
+
     def open_trade(
 
         self,
@@ -45,9 +87,15 @@ class PaperTradingEngine:
 
         )
 
-        self.trades.append(trade)
+
+        self.trades.append(
+            trade
+        )
+
 
         return trade
+
+
 
     def close_trade(
 
@@ -65,6 +113,7 @@ class PaperTradingEngine:
 
         trade.status = "CLOSED"
 
+
         if trade.direction == "BUY":
 
             trade.pnl = (
@@ -75,6 +124,7 @@ class PaperTradingEngine:
 
             ) * trade.quantity
 
+
         else:
 
             trade.pnl = (
@@ -84,5 +134,6 @@ class PaperTradingEngine:
                 - exit_price
 
             ) * trade.quantity
+
 
         return trade

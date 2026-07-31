@@ -2,53 +2,32 @@ from app.scanner.opportunity_ranker import OpportunityRanker
 
 
 
-opportunities = [
+def test_opportunity_ranker_ranks_and_rates():
 
-    {
-        "symbol":"HAL.NS",
-        "contract":"4600 CE",
-        "score":100
-    },
+    opportunities = [
 
-    {
-        "symbol":"TCS.NS",
-        "contract":"2500 CE",
-        "score":86
-    },
+        {
+            "symbol": "INFY.NS",
+            "score": 60
+        },
 
-    {
-        "symbol":"INFY.NS",
-        "contract":"1200 CE",
-        "score":74
-    }
+        {
+            "symbol": "HAL.NS",
+            "score": 90
+        }
 
-]
+    ]
 
 
-result = OpportunityRanker().rank(
-    opportunities
-)
-
-
-print("="*60)
-print("SAADHYA TOP OPPORTUNITIES")
-print("="*60)
-
-
-for item in result:
-
-    print()
-
-    print(
-        item["rank"],
-        item["symbol"]
+    result = OpportunityRanker().rank(
+        opportunities
     )
 
-    print(
-        item["contract"]
-    )
 
-    print(
-        "Score:",
-        item["score"]
-    )
+    assert result[0]["symbol"] == "HAL.NS"
+
+    assert result[0]["rank"] == 1
+
+    assert result[0]["rating"] == "EXCELLENT OPPORTUNITY"
+
+    assert result[1]["rank"] == 2

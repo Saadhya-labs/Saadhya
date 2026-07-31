@@ -115,17 +115,27 @@ class OptionMarketScanner:
             opportunity = {
 
 
-                "symbol": symbol,
+    "symbol": symbol,
 
-                "direction": report.direction,
+    "direction": report.direction,
 
-                "option": best_option,
+    "option": best_option,
 
-                "probability": probability,
+    "probability": probability,
 
-                "explanation": explanation
+    "market_regime":
+        self.market_regime.regime,
 
-            }
+    "market_preference":
+    getattr(
+        self.market_regime,
+        "option_preference",
+        "UNKNOWN"
+    ),
+
+    "explanation": explanation
+
+}
 
 
 

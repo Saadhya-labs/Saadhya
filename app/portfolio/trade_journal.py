@@ -7,6 +7,7 @@ class TradeJournal:
 
         self.trades = []
 
+
     def record_trade(
 
         self,
@@ -15,11 +16,57 @@ class TradeJournal:
 
     ):
 
-        self.trades.append(trade)
+        self.trades.append(
+            trade
+        )
+
+
+    def record(
+
+        self,
+
+        trade: Trade
+
+    ):
+
+        self.record_trade(
+            trade
+        )
+
 
     def all_trades(self):
 
         return self.trades
+
+
+
+    def closed_trades(self):
+
+        return [
+
+            trade
+
+            for trade in self.trades
+
+            if trade.status == "CLOSED"
+
+        ]
+
+
+
+    def open_trades(self):
+
+        return [
+
+            trade
+
+            for trade in self.trades
+
+            if trade.status == "OPEN"
+
+        ]
+
+
 
     def winning_trades(self):
 
@@ -33,6 +80,8 @@ class TradeJournal:
 
         ]
 
+
+
     def losing_trades(self):
 
         return [
@@ -45,6 +94,8 @@ class TradeJournal:
 
         ]
 
+
+
     def total_pnl(self):
 
         return sum(
@@ -55,10 +106,65 @@ class TradeJournal:
 
         )
 
+
+
     def trade_count(self):
 
         return len(
 
             self.trades
+
+        )
+
+
+
+    def win_rate(self):
+
+        closed = self.closed_trades()
+
+        if not closed:
+
+            return 0
+
+
+        winners = [
+
+            trade
+
+            for trade in closed
+
+            if trade.pnl > 0
+
+        ]
+
+
+        return round(
+
+            len(winners)
+
+            / len(closed)
+
+            * 100,
+
+            2
+
+        )
+
+
+
+    def average_pnl(self):
+
+        if not self.trades:
+
+            return 0
+
+
+        return round(
+
+            self.total_pnl()
+
+            / self.trade_count(),
+
+            2
 
         )

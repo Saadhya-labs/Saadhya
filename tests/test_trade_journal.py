@@ -1,136 +1,75 @@
-from app.portfolio.paper_trading_engine import PaperTradingEngine
 from app.portfolio.trade_journal import TradeJournal
+from app.portfolio.trade import Trade
+
+from datetime import datetime
 
 
-engine = PaperTradingEngine()
 
-journal = TradeJournal()
-
-
-trade1 = engine.open_trade(
-
-    symbol="HAL.NS",
-
-    direction="BUY",
-
-    quantity=200,
-
-    entry_price=4500,
-
-    stop_loss=4400,
-
-    target=4700
-
-)
-
-engine.close_trade(
-
-    trade1,
-
-    4600
-
-)
-
-journal.record_trade(
-
-    trade1
-
-)
+def test_trade_journal_metrics():
 
 
-trade2 = engine.open_trade(
-
-    symbol="TCS.NS",
-
-    direction="BUY",
-
-    quantity=50,
-
-    entry_price=3500,
-
-    stop_loss=3450,
-
-    target=3600
-
-)
-
-engine.close_trade(
-
-    trade2,
-
-    3440
-
-)
-
-journal.record_trade(
-
-    trade2
-
-)
+    journal = TradeJournal()
 
 
-print("=" * 60)
-print("SAADHYA TRADE JOURNAL")
-print("=" * 60)
+    trade1 = Trade(
 
-print()
+        symbol="HAL.NS",
 
-print(
+        direction="BUY",
 
-    "Trades:",
+        quantity=100,
 
-    journal.trade_count()
+        entry_price=100,
 
-)
+        stop_loss=90,
 
-print(
+        target=120,
 
-    "Winning Trades:",
+        entry_time=datetime.now(),
 
-    len(
+        exit_price=110,
 
-        journal.winning_trades()
+        status="CLOSED",
+
+        pnl=1000
 
     )
 
-)
 
-print(
+    trade2 = Trade(
 
-    "Losing Trades:",
+        symbol="RELIANCE.NS",
 
-    len(
+        direction="BUY",
 
-        journal.losing_trades()
+        quantity=100,
 
-    )
+        entry_price=100,
 
-)
+        stop_loss=90,
 
-print(
+        target=120,
 
-    "Net PnL:",
+        entry_time=datetime.now(),
 
-    round(
+        exit_price=95,
 
-        journal.total_pnl(),
+        status="CLOSED",
 
-        2
-
-    )
-
-)
-
-print()
-
-for trade in journal.all_trades():
-
-    print(
-
-        trade.symbol,
-
-        trade.status,
-
-        round(trade.pnl, 2)
+        pnl=-500
 
     )
+
+
+    journal.record(trade1)
+
+    journal.record(trade2)
+
+
+    assert journal.trade_count() == 2
+
+    assert journal.total_pnl() == 500
+
+    assert journal.win_rate() == 50
+
+    assert journal.average_pnl() == 250

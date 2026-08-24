@@ -3,7 +3,6 @@ from app.scanner.opportunity_ranker import OpportunityRanker
 
 class MarketScanner:
 
-
     def __init__(
         self,
         stock_scanner,
@@ -17,20 +16,13 @@ class MarketScanner:
         self.rank_engine = OpportunityRanker()
 
 
-
     def scan(self):
-
 
         stock_results = self.stock_scanner.scan()
 
-
         option_results = self.option_scanner.scan()
 
-
-
         opportunities = []
-
-
 
         # -------------------------
         # Stocks
@@ -38,11 +30,8 @@ class MarketScanner:
 
         for stock in stock_results:
 
-
             opportunities.append(
-
                 {
-
                     "type": "STOCK",
 
                     "symbol":
@@ -56,12 +45,8 @@ class MarketScanner:
 
                     "details":
                         stock
-
                 }
-
             )
-
-
 
         # -------------------------
         # Options
@@ -69,20 +54,21 @@ class MarketScanner:
 
         for option in option_results:
 
-
-            score = option.get(
+            probability = option.get(
                 "probability",
                 {}
-            ).get(
-                "score",
-                0
             )
 
+            score = probability.get(
+                "score",
+                probability.get(
+                    "probability",
+                    0
+                )
+            )
 
             opportunities.append(
-
                 {
-
                     "type": "OPTION",
 
                     "symbol":
@@ -93,18 +79,11 @@ class MarketScanner:
 
                     "details":
                         option
-
                 }
-
             )
 
-
-
         ranked = self.rank_engine.rank(
-
             opportunities
-
         )
-
 
         return ranked

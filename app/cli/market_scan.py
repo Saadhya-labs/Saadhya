@@ -56,6 +56,9 @@ def build_market_scanner(data_mode=None, symbols=None):
     from app.data.mock_option_provider import MockOptionProvider
     from app.data.providers.nse_option_provider import NSEOptionProvider
     from app.options.scanner import OptionScanner
+    from app.news.google_news_provider import GoogleNewsRssProvider
+    from app.news.news_enriched_scanner import NewsEnrichedScanner
+    from app.news.news_impact import NewsImpactEngine
     from app.scanner.market_scanner import MarketScanner
     from app.scanner.option_market_scanner import OptionMarketScanner
     from app.scanner.scanner import StockScanner
@@ -69,6 +72,10 @@ def build_market_scanner(data_mode=None, symbols=None):
             symbols=symbols,
         )
     )
+    if data_mode == "live":
+        stock_scanner = NewsEnrichedScanner(
+            stock_scanner, GoogleNewsRssProvider(), NewsImpactEngine()
+        )
     option_provider = (
         MockOptionProvider()
         if data_mode == "mock"
@@ -179,6 +186,8 @@ def run(
     stock_scanner = getattr(scanner, "stock_scanner", None)
     source_scanner = getattr(stock_scanner, "_scanner", stock_scanner)
     failures = list(getattr(source_scanner, "failures", []))
+    if source_scanner is not stock_scanner:
+        failures.extend(getattr(stock_scanner, "failures", []))
     failures.extend(getattr(getattr(scanner, "option_scanner", None), "failures", []))
     report = report_generator.generate_report(
         opportunities,

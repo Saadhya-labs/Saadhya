@@ -19,7 +19,8 @@ def test_recommendation_report_generation():
 
             "details":
             {
-                "risk":"LOW"
+                "risk":"LOW",
+                "news_impact": {"impact": "POSITIVE"}
             }
 
         }
@@ -39,3 +40,5 @@ def test_recommendation_report_generation():
     assert report["top_opportunities"][0]["recommendation"] == "HIGH PROBABILITY OPPORTUNITY"
 
     assert report["top_opportunities"][0]["risk"] == "LOW"
+
+    assert report["top_opportunities"][0]["news_impact"] == "POSITIVE"

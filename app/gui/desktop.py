@@ -26,6 +26,9 @@ class SaadhyaDesktopApp(ttk.Frame):
         self.opportunities = []
         self.mode = tk.StringVar(value="mock")
         self.symbols = tk.StringVar(value=", ".join(NSE_STOCKS))
+        self.auto_refresh = tk.BooleanVar(value=False)
+        self.refresh_seconds = tk.StringVar(value="60")
+        self._refresh_job = None
         self.status = tk.StringVar(value="Ready. Recommendations only; no orders are placed.")
         self._build()
         self.pack(fill="both", expand=True)
@@ -43,15 +46,22 @@ class SaadhyaDesktopApp(ttk.Frame):
         ttk.Combobox(controls, textvariable=self.mode, values=("mock", "live"), state="readonly", width=9).grid(row=0, column=3, padx=8)
         self.scan_button = ttk.Button(controls, text="Scan market", command=self.scan)
         self.scan_button.grid(row=0, column=4)
+        ttk.Checkbutton(
+            controls, text="Auto refresh", variable=self.auto_refresh,
+            command=self._refresh_changed,
+        ).grid(row=1, column=1, sticky="w", pady=(8, 0))
+        ttk.Label(controls, text="Seconds (min 60):").grid(row=1, column=2, sticky="e", pady=(8, 0))
+        ttk.Entry(controls, textvariable=self.refresh_seconds, width=9).grid(row=1, column=3, sticky="w", padx=8, pady=(8, 0))
         controls.columnconfigure(1, weight=1)
 
         ttk.Label(self, textvariable=self.status, wraplength=820).pack(fill="x", pady=(10, 6))
 
-        columns = ("rank", "type", "symbol", "recommendation", "score", "risk")
+        columns = ("rank", "type", "symbol", "recommendation", "score", "risk", "news")
         self.table = ttk.Treeview(self, columns=columns, show="headings", height=12)
         for name, label, width in (
             ("rank", "Rank", 60), ("type", "Type", 90), ("symbol", "Symbol", 130),
-            ("recommendation", "Recommendation", 250), ("score", "Score", 70), ("risk", "Risk", 90),
+            ("recommendation", "Recommendation", 220), ("score", "Score", 70),
+            ("risk", "Risk", 90), ("news", "News", 100),
         ):
             self.table.heading(name, text=label)
             self.table.column(name, width=width, anchor="center")
@@ -74,6 +84,7 @@ class SaadhyaDesktopApp(ttk.Frame):
         if not symbols:
             messagebox.showerror("Saadhya", "Enter at least one symbol, for example HAL.NS.")
             return
+        self._cancel_refresh()
         self.scan_button.configure(state="disabled")
         self.export_button.configure(state="disabled")
         self.status.set("Scanning market data. This may take a moment in live mode.")
@@ -111,6 +122,7 @@ class SaadhyaDesktopApp(ttk.Frame):
                 "No orders were placed."
             )
             self.export_button.configure(state="normal")
+            self._schedule_refresh()
         self.scan_button.configure(state="normal")
         self.after(100, self._poll)
 
@@ -119,7 +131,7 @@ class SaadhyaDesktopApp(ttk.Frame):
         for item in self.report["top_opportunities"]:
             self.table.insert("", "end", values=(
                 item["rank"], item["type"], item["symbol"], item["recommendation"],
-                item["score"], item["risk"],
+                item["score"], item["risk"], item.get("news_impact", "UNAVAILABLE"),
             ))
         self._set_details(rendered)
 
@@ -133,7 +145,19 @@ class SaadhyaDesktopApp(ttk.Frame):
         warnings = []
         for item in matches:
             warnings.extend(item.get("details", {}).get("warnings", []))
-        content = f"{values[2]}\n{values[3]}\nScore: {values[4]} | Risk: {values[5]}"
+        content = f"{values[2]}\n{values[3]}\nScore: {values[4]} | Risk: {values[5]}\nNews impact: {values[6]}"
+        news = next(
+            (
+                item.get("details", {}).get("news_impact")
+                for item in matches
+                if item.get("details", {}).get("news_impact")
+            ),
+            None,
+        )
+        if news and news.get("headlines"):
+            content += "\n\nRecent headlines:\n- " + "\n- ".join(
+                article["title"] for article in news["headlines"]
+            )
         if warnings:
             content += "\n\nWarnings:\n- " + "\n- ".join(warnings)
         self._set_details(content)
@@ -155,6 +179,28 @@ class SaadhyaDesktopApp(ttk.Frame):
             return
         Path(destination).write_text(json.dumps(self.report, indent=2), encoding="utf-8")
         self.status.set(f"Report saved to {destination}")
+
+    def _refresh_changed(self):
+        if self.auto_refresh.get():
+            self._schedule_refresh()
+        else:
+            self._cancel_refresh()
+
+    def _refresh_interval(self):
+        try:
+            return max(60, int(self.refresh_seconds.get()))
+        except ValueError:
+            return 60
+
+    def _schedule_refresh(self):
+        self._cancel_refresh()
+        if self.auto_refresh.get() and self.scan_button.instate(("!disabled",)):
+            self._refresh_job = self.after(self._refresh_interval() * 1000, self.scan)
+
+    def _cancel_refresh(self):
+        if self._refresh_job is not None:
+            self.after_cancel(self._refresh_job)
+            self._refresh_job = None
 
 
 def main():

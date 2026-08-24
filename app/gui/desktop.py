@@ -14,6 +14,7 @@ from tkinter import filedialog, messagebox, ttk
 from app.cli.market_scan import format_market_scan, run
 from app.core.saadhya_app import SaadhyaApp
 from app.reports.recommendation_report import RecommendationReport
+from app.scanner.universe import NSE_STOCKS
 
 
 class SaadhyaDesktopApp(ttk.Frame):
@@ -24,7 +25,7 @@ class SaadhyaDesktopApp(ttk.Frame):
         self.report = None
         self.opportunities = []
         self.mode = tk.StringVar(value="mock")
-        self.symbols = tk.StringVar(value="HAL.NS")
+        self.symbols = tk.StringVar(value=", ".join(NSE_STOCKS))
         self.status = tk.StringVar(value="Ready. Recommendations only; no orders are placed.")
         self._build()
         self.pack(fill="both", expand=True)
@@ -36,7 +37,7 @@ class SaadhyaDesktopApp(ttk.Frame):
 
         controls = ttk.LabelFrame(self, text="Market scan", padding=12)
         controls.pack(fill="x")
-        ttk.Label(controls, text="Symbols (comma-separated):").grid(row=0, column=0, sticky="w")
+        ttk.Label(controls, text="Scan universe (editable):").grid(row=0, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.symbols, width=55).grid(row=0, column=1, padx=8, sticky="ew")
         ttk.Label(controls, text="Data:").grid(row=0, column=2, sticky="w")
         ttk.Combobox(controls, textvariable=self.mode, values=("mock", "live"), state="readonly", width=9).grid(row=0, column=3, padx=8)

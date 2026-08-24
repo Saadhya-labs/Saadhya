@@ -28,7 +28,7 @@ The default is deterministic mock data. To use live data, set `DATA_MODE=live`; 
 
 ## Desktop application
 
-Double-click `saadhya_desktop.pyw` to open the Windows desktop interface. It provides mock/live selection, a symbol field, scan results, source warnings, and JSON export. The packaged Windows application is generated as `outputs\Saadhya.exe`.
+Double-click `saadhya_desktop.pyw` to open the Windows desktop interface. It defaults to the supported NSE universe, automatically ranks the top opportunities, and provides mock/live selection, an editable scan universe, source warnings, and JSON export. The packaged Windows application is generated as `outputs\Saadhya.exe`.
 
 The desktop application is recommendation-only. It never sends orders to a broker.
 

@@ -36,10 +36,10 @@ class DummyApp:
     def __init__(self):
         self.received = None
 
-    def generate_report(self, opportunities):
+    def generate_report(self, opportunities, metadata=None):
         self.received = opportunities
 
-        return {
+        report = {
             "title": "SAADHYA OPPORTUNITY REPORT",
             "total_opportunities": len(opportunities),
             "top_opportunities": [
@@ -53,6 +53,9 @@ class DummyApp:
                 }
             ],
         }
+        if metadata is not None:
+            report["metadata"] = metadata
+        return report
 
 
 def test_market_scan_uses_existing_scanner_and_report_pipeline():
@@ -69,3 +72,38 @@ def test_market_scan_uses_existing_scanner_and_report_pipeline():
     assert "Entry zone: 108.00–132.00" in rendered
     assert "Target zone: 180.00–240.00" in rendered
     assert "no orders are placed" in rendered
+
+
+def test_market_scan_supports_json_output():
+    app = DummyApp()
+    output = StringIO()
+
+    run(DummyScanner(), app, output, output_format="json")
+
+    assert '"total_opportunities": 1' in output.getvalue()
+
+
+def test_market_scan_includes_scanner_failures():
+    class FailingStockScanner:
+        failures = [{"symbol": "HAL.NS", "error": "Provider unavailable"}]
+
+    class ScannerWithFailure(DummyScanner):
+        stock_scanner = FailingStockScanner()
+
+    output = StringIO()
+    run(ScannerWithFailure(), DummyApp(), output)
+
+    assert "Unavailable symbols: 1" in output.getvalue()
+
+
+def test_market_scan_includes_option_source_failures():
+    class FailingOptionScanner:
+        failures = [{"symbol": "HAL.NS", "source": "option-chain", "error": "Forbidden"}]
+
+    class ScannerWithFailure(DummyScanner):
+        option_scanner = FailingOptionScanner()
+
+    output = StringIO()
+    run(ScannerWithFailure(), DummyApp(), output)
+
+    assert "Unavailable symbols: 1" in output.getvalue()

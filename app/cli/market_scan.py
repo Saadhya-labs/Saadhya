@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 from io import TextIOBase
 from types import SimpleNamespace
 from typing import Any
@@ -57,7 +59,7 @@ def build_market_scanner():
     from app.scanner.scanner import StockScanner
     from app.strategy.probability_engine import ProbabilityEngine
 
-    stock_scanner = _CachedStockScanner(StockScanner())
+    stock_scanner = _CachedStockScanner(StockScanner(symbols=Settings.SCAN_SYMBOLS))
     option_provider = (
         MockOptionProvider()
         if Settings.DATA_MODE.upper() == "MOCK"
@@ -92,7 +94,14 @@ def format_market_scan(report: dict[str, Any], opportunities: list[dict[str, Any
         "Recommendation-only: no orders are placed.",
         "=" * 60,
         f"Total opportunities: {report['total_opportunities']}",
+        f"Generated (UTC): {report.get('generated_at', 'unknown')}",
+        f"Data mode: {report.get('metadata', {}).get('data_mode', 'unknown')}",
     ]
+    failures = report.get("metadata", {}).get("scan_failures", [])
+    if failures:
+        lines.append(f"Unavailable symbols: {len(failures)}")
+        for failure in failures:
+            lines.append(f"  {failure['symbol']}: {failure['error']}")
     for item in report["top_opportunities"]:
         lines.extend(
             [
@@ -101,6 +110,8 @@ def format_market_scan(report: dict[str, Any], opportunities: list[dict[str, Any
                 f"Score: {item['score']} | {item['recommendation']} | Risk: {item['risk']}",
             ]
         )
+        for warning in item.get("warnings", []):
+            lines.append(f"Warning: {warning}")
 
     formatter = OpportunityFormatter()
     zone_engine = OptionOpportunityEngine()
@@ -135,9 +146,15 @@ def format_market_scan(report: dict[str, Any], opportunities: list[dict[str, Any
     return "\n".join(lines)
 
 
-def run(scanner=None, report_generator=None, output: TextIOBase | None = None):
+def run(
+    scanner=None,
+    report_generator=None,
+    output: TextIOBase | None = None,
+    output_format="text",
+):
     """Run one market scan and print recommendations; never execute trades."""
     import sys
+    from app.config.settings import Settings
 
     if scanner is None:
         scanner = build_market_scanner()
@@ -148,13 +165,36 @@ def run(scanner=None, report_generator=None, output: TextIOBase | None = None):
         output = sys.stdout
 
     opportunities = scanner.scan()
-    report = report_generator.generate_report(opportunities)
-    print(format_market_scan(report, opportunities), file=output)
+    stock_scanner = getattr(scanner, "stock_scanner", None)
+    source_scanner = getattr(stock_scanner, "_scanner", stock_scanner)
+    failures = list(getattr(source_scanner, "failures", []))
+    failures.extend(getattr(getattr(scanner, "option_scanner", None), "failures", []))
+    report = report_generator.generate_report(
+        opportunities,
+        metadata={
+            "data_mode": Settings.DATA_MODE,
+            "scope": "recommendation-only",
+            "scan_failures": failures,
+        },
+    )
+    if output_format == "json":
+        print(json.dumps(report, indent=2, sort_keys=True), file=output)
+    elif output_format == "text":
+        print(format_market_scan(report, opportunities), file=output)
+    else:
+        raise ValueError("output_format must be 'text' or 'json'")
     return report
 
 
-def main():
-    run()
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Generate Saadhya market recommendations; no orders are placed."
+    )
+    parser.add_argument(
+        "--format", choices=("text", "json"), default="text", dest="output_format"
+    )
+    args = parser.parse_args(argv)
+    run(output_format=args.output_format)
 
 
 if __name__ == "__main__":

@@ -45,7 +45,7 @@ class ProbabilityEngine:
 
         # Market regime
 
-        if market_regime == "BULLISH":
+        if market_regime in {"BULLISH", "RISK_ON"}:
 
             probability += 10
 
@@ -54,7 +54,7 @@ class ProbabilityEngine:
             )
 
 
-        elif market_regime == "BEARISH":
+        elif market_regime in {"BEARISH", "RISK_OFF"}:
 
             probability -= 10
 
@@ -95,6 +95,8 @@ class ProbabilityEngine:
 
             "factors": factors,
 
-            "warnings": warnings
+            "warnings": warnings + [
+                "Probability is a heuristic quality score, not a forecast."
+            ]
 
         }

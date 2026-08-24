@@ -1,25 +1,7 @@
-from datetime import datetime
+"""Compatibility entry point for the recommendation-only CLI."""
 
-from config.settings import APP_NAME
-from config.settings import VERSION
+from app.cli.market_scan import main
 
-print("="*60)
-print(APP_NAME)
-print("="*60)
 
-print(f"Version : {VERSION}")
-print(f"Started : {datetime.now()}")
-
-print()
-
-print("Modules")
-
-print("✓ Configuration")
-
-print("✓ Logging")
-
-print("✓ Project Initialized")
-
-print()
-
-print("SAADHYA Ready")
+if __name__ == "__main__":
+    main()

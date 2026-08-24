@@ -1,5 +1,6 @@
 from app.strategy.explanation_generator import ExplanationGenerator
 from app.reports.option_report_formatter import OptionReportFormatter
+import requests
 
 
 
@@ -33,11 +34,15 @@ class OptionMarketScanner:
 
         self.report_formatter = OptionReportFormatter()
 
+        self.failures = []
+
 
 
     def scan(self):
 
         opportunities = []
+
+        self.failures = []
 
 
         stocks = self.stock_scanner.scan()
@@ -50,23 +55,25 @@ class OptionMarketScanner:
             symbol = stock["symbol"]
 
 
-            print(
-                f"Analyzing {symbol}"
-            )
-
-
-
             report = self.analyzer.analyze(
                 symbol
             )
 
 
 
-            options = self.option_provider.get_option_chain(
-
-                symbol.replace(".NS", "")
-
-            )
+            try:
+                options = self.option_provider.get_option_chain(
+                    symbol.replace(".NS", "")
+                )
+            except (requests.RequestException, RuntimeError, ValueError) as exc:
+                self.failures.append(
+                    {
+                        "symbol": symbol,
+                        "source": "option-chain",
+                        "error": str(exc),
+                    }
+                )
+                continue
 
 
 
@@ -119,6 +126,8 @@ class OptionMarketScanner:
 
     "direction": report.direction,
 
+    "risk": getattr(report, "risk", "MEDIUM"),
+
     "option": best_option,
 
     "probability": probability,
@@ -133,7 +142,9 @@ class OptionMarketScanner:
         "UNKNOWN"
     ),
 
-    "explanation": explanation
+    "explanation": explanation,
+
+    "warnings": best_option.get("warnings", []) + probability.get("warnings", [])
 
 }
 

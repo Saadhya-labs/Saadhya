@@ -28,7 +28,8 @@ class OptionScanner:
                 {
                     "option": option,
                     "score": score["score"],
-                    "breakdown": score["breakdown"]
+                    "breakdown": score["breakdown"],
+                    "warnings": score["warnings"]
                 }
             )
 

@@ -1,23 +1,17 @@
-from app.config.settings import Settings
-from app.broker.broker_factory import BrokerFactory
 from app.analyzer.analyzer import StockAnalyzer
+from app.config.settings import Settings
 from app.reports.recommendation_report import RecommendationReport
 
 
 class SaadhyaApp:
+    """Recommendation-only application facade."""
 
-
-    def __init__(self):
-
+    def __init__(self, analyzer=None, report_engine=None):
         self.settings = Settings
-
-        self.broker = BrokerFactory.create(
-            self.settings.BROKER
+        self.analyzer = analyzer or StockAnalyzer()
+        self.report_engine = report_engine or RecommendationReport(
+            limit=self.settings.SCAN_LIMIT
         )
-
-        self.analyzer = StockAnalyzer()
-
-        self.report_engine = RecommendationReport()
 
 
 
@@ -37,35 +31,9 @@ class SaadhyaApp:
 
 
 
-    def generate_report(
-        self,
-        opportunities
-    ):
+    def generate_report(self, opportunities, metadata=None):
 
         return self.report_engine.generate(
-            opportunities
+            opportunities,
+            metadata=metadata
         )
-
-
-
-    def place_trade(
-        self,
-        symbol,
-        direction,
-        quantity,
-        price
-    ):
-
-        order = self.broker.place_order(
-
-            symbol=symbol,
-
-            direction=direction,
-
-            quantity=quantity,
-
-            price=price
-
-        )
-
-        return order

@@ -15,6 +15,7 @@ def test_mock_option_provider():
     assert options[0].symbol == "HAL"
 
 
+@pytest.mark.live
 def test_nse_option_provider():
 
     provider = NSEOptionProvider()
@@ -22,7 +23,7 @@ def test_nse_option_provider():
     try:
         options = provider.get_option_chain("HAL")
 
-    except requests.HTTPError as exc:
-        pytest.skip(f"NSE rejected the request: {exc}")
+    except requests.RequestException as exc:
+        pytest.skip(f"NSE is unavailable: {exc}")
 
     assert len(options) > 0

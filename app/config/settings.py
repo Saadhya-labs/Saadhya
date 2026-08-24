@@ -1,4 +1,9 @@
+"""Validated configuration for Saadhya's recommendation-only runtime."""
+
+from __future__ import annotations
+
 import os
+from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
@@ -6,38 +11,60 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+@dataclass(frozen=True)
+class RuntimeSettings:
+    app_env: str
+    data_mode: str
+    default_symbol: str
+    scan_symbols: tuple[str, ...]
+    scan_limit: int
+
+
+def _symbols(value: str) -> tuple[str, ...]:
+    symbols = tuple(symbol.strip().upper() for symbol in value.split(",") if symbol.strip())
+    if not symbols:
+        raise ValueError("SCAN_SYMBOLS must contain at least one symbol")
+    return symbols
+
+
+def load_settings(environ=None) -> RuntimeSettings:
+    environ = os.environ if environ is None else environ
+    data_mode = environ.get("DATA_MODE", "mock").strip().lower()
+    if data_mode not in {"mock", "live"}:
+        raise ValueError("DATA_MODE must be either 'mock' or 'live'")
+
+    default_symbol = environ.get("DEFAULT_SYMBOL", "HAL.NS").strip().upper()
+    if not default_symbol:
+        raise ValueError("DEFAULT_SYMBOL must not be empty")
+
+    try:
+        scan_limit = int(environ.get("SCAN_LIMIT", "10"))
+    except ValueError as exc:
+        raise ValueError("SCAN_LIMIT must be an integer") from exc
+    if scan_limit < 1:
+        raise ValueError("SCAN_LIMIT must be greater than zero")
+
+    return RuntimeSettings(
+        app_env=environ.get("APP_ENV", "development").strip().lower(),
+        data_mode=data_mode,
+        default_symbol=default_symbol,
+        scan_symbols=_symbols(environ.get("SCAN_SYMBOLS", default_symbol)),
+        scan_limit=scan_limit,
+    )
+
+
+_runtime = load_settings()
+
+
 class Settings:
+    """Compatibility facade for application configuration."""
 
-    APP_ENV = os.getenv(
-        "APP_ENV",
-        "development"
-    )
-
-
-    BROKER = os.getenv(
-        "BROKER",
-        "paper"
-    )
-
-
-    STARTING_CAPITAL = int(
-        os.getenv(
-            "STARTING_CAPITAL",
-            1000000
-        )
-    )
-
-
-    DEFAULT_SYMBOL = os.getenv(
-        "DEFAULT_SYMBOL",
-        "HAL.NS"
-    )
-
-
-    DATA_MODE = os.getenv(
-        "DATA_MODE",
-        "mock"
-    )
+    APP_ENV = _runtime.app_env
+    DATA_MODE = _runtime.data_mode
+    DEFAULT_SYMBOL = _runtime.default_symbol
+    SCAN_SYMBOLS = _runtime.scan_symbols
+    SCAN_LIMIT = _runtime.scan_limit
+    RECOMMENDATION_ONLY = True
 
 
 DATA_MODE = Settings.DATA_MODE

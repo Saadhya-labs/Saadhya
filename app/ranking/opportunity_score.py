@@ -13,9 +13,16 @@ class OpportunityScore:
             signals = report.signals
 
             recommendation = {
+                "direction": report.direction,
                 "risk": report.risk,
                 "confidence": report.confidence
             }
+
+        direction = recommendation.get("direction", "WATCH")
+        expected_signal = direction if direction in {"BUY", "SELL"} else None
+
+        def aligned(signal_name):
+            return expected_signal is not None and signals.get(signal_name) == expected_signal
 
         breakdown = {}
 
@@ -25,10 +32,10 @@ class OpportunityScore:
 
         trend = 0
 
-        if signals.get("EMA") == "BUY":
+        if aligned("EMA"):
             trend += 12
 
-        if signals.get("SUPERTREND") == "BUY":
+        if aligned("SUPERTREND"):
             trend += 13
 
         breakdown["trend"] = trend
@@ -39,13 +46,13 @@ class OpportunityScore:
 
         momentum = 0
 
-        if signals.get("MACD") == "BUY":
+        if aligned("MACD"):
             momentum += 15
 
-        if signals.get("RSI") == "BUY":
+        if aligned("RSI"):
             momentum += 5
 
-        elif signals.get("RSI") == "HOLD":
+        elif expected_signal is None and signals.get("RSI") == "HOLD":
             momentum += 3
 
         breakdown["momentum"] = momentum
@@ -65,9 +72,10 @@ class OpportunityScore:
             elif signal == "SELL":
                 bearish += 1
 
-        agreement = max(
-            bullish,
-            bearish
+        agreement = (
+            (bullish if expected_signal == "BUY" else bearish)
+            if expected_signal is not None
+            else 0
         ) * 5
 
         breakdown["agreement"] = min(

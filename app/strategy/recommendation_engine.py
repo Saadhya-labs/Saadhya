@@ -1,9 +1,27 @@
 class RecommendationEngine:
 
+    REQUIRED_SIGNALS = ("EMA", "RSI", "MACD", "VWAP", "SUPERTREND")
+
     def __init__(self):
         pass
 
     def generate(self, signals):
+
+        missing = [name for name in self.REQUIRED_SIGNALS if name not in signals]
+
+        if missing:
+            raise ValueError(
+                f"Missing required signals: {', '.join(missing)}"
+            )
+
+        invalid = [
+            f"{name}={signals[name]}"
+            for name in self.REQUIRED_SIGNALS
+            if signals[name] not in {"BUY", "SELL", "HOLD"}
+        ]
+
+        if invalid:
+            raise ValueError(f"Invalid signal values: {', '.join(invalid)}")
 
         score = 0
         reasons = []

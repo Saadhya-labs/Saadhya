@@ -33,3 +33,20 @@ def test_opportunity_score_generation():
         "risk",
         "confidence",
     }
+
+
+def test_opportunity_score_supports_strong_bearish_setups():
+    signals = {
+        "EMA": "SELL",
+        "RSI": "SELL",
+        "MACD": "SELL",
+        "VWAP": "SELL",
+        "SUPERTREND": "SELL",
+    }
+
+    score = OpportunityScore().calculate(
+        signals,
+        {"direction": "SELL", "risk": "LOW", "confidence": 85},
+    )
+
+    assert score["total"] == 96

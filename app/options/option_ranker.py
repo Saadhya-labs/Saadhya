@@ -7,6 +7,8 @@ class OptionRanker:
 
         breakdown = {}
 
+        warnings = []
+
 
         # Direction alignment
 
@@ -30,7 +32,12 @@ class OptionRanker:
 
         delta_score = 0
 
-        if 0.45 <= abs(option.delta) <= 0.65:
+        greeks_available = not (option.delta == 0 and option.theta == 0)
+
+        if not greeks_available:
+            warnings.append("Delta and theta are unavailable; Greeks were not scored.")
+
+        elif 0.45 <= abs(option.delta) <= 0.65:
             delta_score = 25
 
         elif 0.30 <= abs(option.delta) < 0.45:
@@ -64,7 +71,10 @@ class OptionRanker:
 
         theta_score = 0
 
-        if abs(option.theta) < 3:
+        if not greeks_available:
+            theta_score = 0
+
+        elif abs(option.theta) < 3:
             theta_score = 15
 
         elif abs(option.theta) < 5:
@@ -96,5 +106,6 @@ class OptionRanker:
 
         return {
             "score": min(score,100),
-            "breakdown": breakdown
+            "breakdown": breakdown,
+            "warnings": warnings
         }

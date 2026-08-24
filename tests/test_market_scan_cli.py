@@ -1,7 +1,7 @@
 from io import StringIO
 from types import SimpleNamespace
 
-from app.cli.market_scan import run
+from app.cli.market_scan import build_market_scanner, run
 
 
 class DummyScanner:
@@ -81,6 +81,12 @@ def test_market_scan_supports_json_output():
     run(DummyScanner(), app, output, output_format="json")
 
     assert '"total_opportunities": 1' in output.getvalue()
+
+
+def test_market_scanner_accepts_desktop_mode_and_symbol_configuration():
+    scanner = build_market_scanner(data_mode="mock", symbols=("HAL.NS",))
+
+    assert scanner.stock_scanner._scanner.symbols == ("HAL.NS",)
 
 
 def test_market_scan_includes_scanner_failures():

@@ -48,9 +48,11 @@ class _CachedAnalyzer:
         raise ValueError(f"No stock analysis report found for {symbol}")
 
 
-def build_market_scanner():
+def build_market_scanner(data_mode=None, symbols=None):
     """Compose existing analysis, option, and ranking services."""
+    from app.analyzer.analyzer import StockAnalyzer
     from app.config.settings import Settings
+    from app.config.provider_factory import get_stock_provider
     from app.data.mock_option_provider import MockOptionProvider
     from app.data.providers.nse_option_provider import NSEOptionProvider
     from app.options.scanner import OptionScanner
@@ -59,10 +61,17 @@ def build_market_scanner():
     from app.scanner.scanner import StockScanner
     from app.strategy.probability_engine import ProbabilityEngine
 
-    stock_scanner = _CachedStockScanner(StockScanner(symbols=Settings.SCAN_SYMBOLS))
+    data_mode = (data_mode or Settings.DATA_MODE).lower()
+    symbols = symbols or Settings.SCAN_SYMBOLS
+    stock_scanner = _CachedStockScanner(
+        StockScanner(
+            analyzer=StockAnalyzer(get_stock_provider(data_mode)),
+            symbols=symbols,
+        )
+    )
     option_provider = (
         MockOptionProvider()
-        if Settings.DATA_MODE.upper() == "MOCK"
+        if data_mode == "mock"
         else NSEOptionProvider()
     )
     market_regime = SimpleNamespace(
@@ -151,13 +160,14 @@ def run(
     report_generator=None,
     output: TextIOBase | None = None,
     output_format="text",
+    data_mode=None,
 ):
     """Run one market scan and print recommendations; never execute trades."""
     import sys
     from app.config.settings import Settings
 
     if scanner is None:
-        scanner = build_market_scanner()
+        scanner = build_market_scanner(data_mode=data_mode)
     if report_generator is None:
         from app.core.saadhya_app import SaadhyaApp
         report_generator = SaadhyaApp()
@@ -165,6 +175,7 @@ def run(
         output = sys.stdout
 
     opportunities = scanner.scan()
+    scanner.last_opportunities = opportunities
     stock_scanner = getattr(scanner, "stock_scanner", None)
     source_scanner = getattr(stock_scanner, "_scanner", stock_scanner)
     failures = list(getattr(source_scanner, "failures", []))
@@ -172,7 +183,7 @@ def run(
     report = report_generator.generate_report(
         opportunities,
         metadata={
-            "data_mode": Settings.DATA_MODE,
+            "data_mode": data_mode or Settings.DATA_MODE,
             "scope": "recommendation-only",
             "scan_failures": failures,
         },

@@ -26,6 +26,12 @@ Use `--format json` for machine-readable output:
 
 The default is deterministic mock data. To use live data, set `DATA_MODE=live`; live providers depend on upstream availability and are not used by the default test suite.
 
+## Desktop application
+
+Double-click `saadhya_desktop.pyw` to open the Windows desktop interface. It provides mock/live selection, a symbol field, scan results, source warnings, and JSON export. The packaged Windows application is generated as `outputs\Saadhya.exe`.
+
+The desktop application is recommendation-only. It never sends orders to a broker.
+
 ## Configuration
 
 Settings are read from `.env` or the environment:

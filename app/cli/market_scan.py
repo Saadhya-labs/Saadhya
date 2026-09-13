@@ -23,16 +23,26 @@ class _CachedStockScanner:
         return self._reports
 
     def scan(self):
-        return [
-            {
+        from app.strategy.trade_decision import TradeDecision
+
+        decision_engine = TradeDecision()
+        results = []
+        for report in self.reports:
+            decision = decision_engine.calculate(report)
+            results.append({
                 "symbol": report.symbol,
                 "score": report.opportunity_score.get("total", 0),
                 "direction": report.direction,
                 "confidence": report.confidence,
                 "risk": report.risk,
-            }
-            for report in self.reports
-        ]
+                "recommendation": report.recommendation,
+                "current_price": report.price,
+                "entry": decision.get("entry"),
+                "target": decision.get("target"),
+                "stop_loss": decision.get("stop_loss"),
+                "holding": report.holding,
+            })
+        return results
 
 
 class _CachedAnalyzer:
@@ -48,13 +58,16 @@ class _CachedAnalyzer:
         raise ValueError(f"No stock analysis report found for {symbol}")
 
 
-def build_market_scanner(data_mode=None, symbols=None):
+def build_market_scanner(
+    data_mode=None,
+    symbols=None,
+    stock_provider=None,
+    option_provider=None,
+):
     """Compose existing analysis, option, and ranking services."""
     from app.analyzer.analyzer import StockAnalyzer
     from app.config.settings import Settings
-    from app.config.provider_factory import get_stock_provider
-    from app.data.mock_option_provider import MockOptionProvider
-    from app.data.providers.nse_option_provider import NSEOptionProvider
+    from app.config.provider_factory import get_option_provider, get_stock_provider
     from app.options.scanner import OptionScanner
     from app.news.google_news_provider import GoogleNewsRssProvider
     from app.news.news_enriched_scanner import NewsEnrichedScanner
@@ -66,9 +79,11 @@ def build_market_scanner(data_mode=None, symbols=None):
 
     data_mode = (data_mode or Settings.DATA_MODE).lower()
     symbols = symbols or Settings.SCAN_SYMBOLS
+    stock_provider = stock_provider or get_stock_provider(data_mode)
+    option_provider = option_provider or get_option_provider(data_mode)
     stock_scanner = _CachedStockScanner(
         StockScanner(
-            analyzer=StockAnalyzer(get_stock_provider(data_mode)),
+            analyzer=StockAnalyzer(stock_provider),
             symbols=symbols,
         )
     )
@@ -76,11 +91,6 @@ def build_market_scanner(data_mode=None, symbols=None):
         stock_scanner = NewsEnrichedScanner(
             stock_scanner, GoogleNewsRssProvider(), NewsImpactEngine()
         )
-    option_provider = (
-        MockOptionProvider()
-        if data_mode == "mock"
-        else NSEOptionProvider()
-    )
     market_regime = SimpleNamespace(
         regime="NEUTRAL", option_preference="WAIT"
     )
@@ -92,7 +102,13 @@ def build_market_scanner(data_mode=None, symbols=None):
         probability_engine=ProbabilityEngine(),
         market_regime=market_regime,
     )
-    return MarketScanner(stock_scanner, option_scanner)
+    scanner = MarketScanner(stock_scanner, option_scanner)
+    scanner.requested_symbols = tuple(symbols)
+    scanner.market_data_providers = {
+        "stock": stock_provider,
+        "option": option_provider,
+    }
+    return scanner
 
 
 def _format_zone(zone):
@@ -189,12 +205,41 @@ def run(
     if source_scanner is not stock_scanner:
         failures.extend(getattr(stock_scanner, "failures", []))
     failures.extend(getattr(getattr(scanner, "option_scanner", None), "failures", []))
+    stale_data = []
+    requested = getattr(scanner, "requested_symbols", None)
+    requested_underlyings = (
+        {
+            str(symbol).upper().replace(".NS", "").replace("NSE:", "")
+            for symbol in requested
+        }
+        if requested is not None else None
+    )
+    for source, provider in getattr(scanner, "market_data_providers", {}).items():
+        stale_symbols = sorted(getattr(provider, "stale_symbols", ()))
+        if requested_underlyings is not None:
+            stale_symbols = [
+                symbol for symbol in stale_symbols
+                if str(symbol).upper().replace(".NS", "").replace("NSE:", "")
+                in requested_underlyings
+            ]
+        if stale_symbols:
+            stale_data.append({"source": source, "symbols": stale_symbols})
+        if getattr(provider, "instrument_master_stale", False):
+            stale_data.append({
+                "source": source,
+                "scope": "instrument-master",
+                "status": "cached",
+            })
     report = report_generator.generate_report(
         opportunities,
         metadata={
             "data_mode": data_mode or Settings.DATA_MODE,
             "scope": "recommendation-only",
             "scan_failures": failures,
+            "stale_data": stale_data,
+            "option_analysis": list(
+                getattr(getattr(scanner, "option_scanner", None), "coverage", [])
+            ),
         },
     )
     if output_format == "json":

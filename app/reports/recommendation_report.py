@@ -84,6 +84,14 @@ class RecommendationReport:
 
                     "news_impact": details.get("news_impact", {}).get("impact", "UNAVAILABLE") if isinstance(details, dict) else "UNAVAILABLE"
 
+                    ,"current_price": details.get("current_price") if isinstance(details, dict) else None
+
+                    ,"entry": details.get("entry") if isinstance(details, dict) else None
+
+                    ,"target": details.get("target") if isinstance(details, dict) else None
+
+                    ,"stop_loss": details.get("stop_loss") if isinstance(details, dict) else None
+
                 }
 
             )
@@ -97,6 +105,12 @@ class RecommendationReport:
         self,
         item
     ):
+
+        details = item.get("details", {})
+        if item.get("type") == "STOCK" and isinstance(details, dict):
+            recommendation = details.get("recommendation")
+            if recommendation:
+                return recommendation
 
 
         score = item.get(

@@ -3,12 +3,30 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 
-load_dotenv()
+def _load_local_environment():
+    """Load a local config beside the project or packaged executable.
+
+    The Windows bundle lives in ``outputs`` while the user-managed ``.env``
+    normally remains in the project folder.  Search both locations without
+    overriding environment values supplied by the operating system.
+    """
+    candidates = [Path.cwd() / ".env"]
+    if getattr(sys, "frozen", False):
+        executable_directory = Path(sys.executable).resolve().parent
+        candidates.extend((executable_directory / ".env", executable_directory.parent / ".env"))
+    for candidate in candidates:
+        if candidate.is_file():
+            load_dotenv(candidate, override=False)
+
+
+_load_local_environment()
 
 
 @dataclass(frozen=True)
@@ -29,9 +47,9 @@ def _symbols(value: str) -> tuple[str, ...]:
 
 def load_settings(environ=None) -> RuntimeSettings:
     environ = os.environ if environ is None else environ
-    data_mode = environ.get("DATA_MODE", "mock").strip().lower()
-    if data_mode not in {"mock", "live"}:
-        raise ValueError("DATA_MODE must be either 'mock' or 'live'")
+    data_mode = environ.get("DATA_MODE", "kite").strip().lower()
+    if data_mode not in {"mock", "live", "kite"}:
+        raise ValueError("DATA_MODE must be 'mock', 'live', or 'kite'")
 
     default_symbol = environ.get("DEFAULT_SYMBOL", "HAL.NS").strip().upper()
     if not default_symbol:

@@ -23,7 +23,9 @@ class StockScanner:
                 if result is not None:
                     results.append(result)
 
-            except (ValueError, KeyError, TypeError) as exc:
+            # A broad live scan should degrade per symbol instead of losing
+            # every usable recommendation when one provider request drops.
+            except (ValueError, KeyError, TypeError, RuntimeError) as exc:
                 self.failures.append({"symbol": symbol, "error": str(exc)})
 
         # Sort by confidence (highest first)

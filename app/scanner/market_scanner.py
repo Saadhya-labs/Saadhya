@@ -59,12 +59,9 @@ class MarketScanner:
                 {}
             )
 
-            score = probability.get(
+            score = option.get(
                 "score",
-                probability.get(
-                    "probability",
-                    0
-                )
+                probability.get("score", probability.get("probability", 0))
             )
 
             opportunities.append(

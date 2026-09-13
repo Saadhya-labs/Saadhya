@@ -7,4 +7,6 @@ __pycache__/
 .idea/
 .vscode/settings.json
 outputs/
+build/
+dist/
 tmp/

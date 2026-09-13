@@ -1,3 +1,6 @@
+import math
+
+
 class OptionRanker:
 
 
@@ -52,13 +55,14 @@ class OptionRanker:
 
         # Liquidity
 
-        liquidity = 0
-
-        if option.volume > 500000:
-            liquidity += 10
-
-        if option.open_interest > 1000000:
-            liquidity += 10
+        # Continuous scoring avoids hundreds of live contracts collapsing to
+        # the same threshold score. Log scaling keeps very large index volume
+        # from overwhelming otherwise tradable stock contracts.
+        volume = max(0, float(option.volume or 0))
+        open_interest = max(0, float(option.open_interest or 0))
+        volume_score = max(0, min(10, (math.log10(volume + 1) - 3) / 3 * 10))
+        oi_score = max(0, min(10, (math.log10(open_interest + 1) - 4) / 3 * 10))
+        liquidity = round(volume_score + oi_score, 2)
 
 
         breakdown["liquidity"] = liquidity
@@ -91,11 +95,16 @@ class OptionRanker:
 
         iv_score = 0
 
+        iv_available = option.implied_volatility > 0
+
         if 15 <= option.implied_volatility <= 30:
             iv_score = 15
 
-        elif option.implied_volatility < 40:
+        elif iv_available and option.implied_volatility < 40:
             iv_score = 8
+
+        elif not iv_available:
+            warnings.append("Implied volatility is unavailable; IV was not scored.")
 
 
         breakdown["iv"] = iv_score
@@ -104,8 +113,17 @@ class OptionRanker:
 
 
 
+        # Normalize only across fields that are actually available. Kite does
+        # not provide exchange Greeks or IV, so missing fields neither earn
+        # points nor depress every candidate into the same default bucket.
+        available_max = 45
+        if greeks_available:
+            available_max += 40
+        if iv_available:
+            available_max += 15
+
         return {
-            "score": min(score,100),
+            "score": round(min(score / available_max * 100, 100), 1),
             "breakdown": breakdown,
             "warnings": warnings
         }

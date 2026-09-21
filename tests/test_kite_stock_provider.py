@@ -24,6 +24,8 @@ class Session:
 
     def get(self, url, **kwargs):
         self.calls.append((url, kwargs))
+        if url.endswith("/user/profile"):
+            return Response(payload={"status": "success", "data": {"user_name": "Test User"}})
         if url.endswith("/instruments/NSE"):
             return Response("instrument_token,tradingsymbol,instrument_type\n123,HAL,EQ\n")
         if "/historical/123/day" in url:
@@ -34,6 +36,16 @@ class Session:
 def test_kite_provider_requires_local_credentials():
     with pytest.raises(KiteConfigurationError):
         KiteStockProvider()
+
+
+def test_kite_session_validation_uses_read_only_profile_endpoint(tmp_path):
+    session = Session()
+    provider = KiteStockProvider(
+        "key", "token", session=session, history_cache_dir=tmp_path,
+    )
+    assert provider.validate_session()["user_name"] == "Test User"
+    assert session.calls[-1][0].endswith("/user/profile")
+    assert all("/orders" not in call[0] for call in session.calls)
 
 
 def test_kite_provider_uses_read_only_market_endpoints(tmp_path):
@@ -74,6 +86,79 @@ def test_kite_provider_reuses_last_history_during_reconnect(tmp_path):
 
     assert cached.equals(first)
     assert provider.stale_symbols == {"HAL.NS"}
+
+
+def test_kite_provider_reuses_last_history_when_successful_response_has_invalid_candle(tmp_path):
+    session = Session()
+    clock = [datetime(2026, 2, 1, tzinfo=timezone.utc)]
+    provider = KiteStockProvider(
+        "key", "token", session=session, retries=1,
+        now=lambda: clock[0], history_cache_dir=tmp_path,
+    )
+    first = provider.get_history("HAL.NS")
+    clock[0] += timedelta(hours=7)
+    original_get = session.get
+
+    def invalid_history(url, **kwargs):
+        if "/historical/" in url:
+            return Response(payload={"data": {"candles": [
+                ["2026-02-01T00:00:00+0530", 1, 3, 1, float("nan"), 50]
+            ]}})
+        return original_get(url, **kwargs)
+
+    session.get = invalid_history
+    assert provider.get_history("HAL.NS").equals(first)
+    assert provider.stale_symbols == {"HAL.NS"}
+
+
+def test_kite_provider_reuses_last_price_when_successful_quote_is_invalid(tmp_path):
+    session = Session()
+    provider = KiteStockProvider(
+        "key", "token", session=session, retries=1,
+        history_cache_dir=tmp_path,
+    )
+    assert provider.get_price("HAL.NS") == 123.45
+
+    for payload in (
+        {"data": {"NSE:HAL": {"last_price": float("inf")}}},
+        {"data": {"NSE:HAL": {"last_price": None}}},
+        {"data": None},
+    ):
+        session.get = lambda url, **kwargs: Response(payload=payload)
+        assert provider.get_price("HAL.NS") == 123.45
+        assert provider.stale_symbols == {"HAL.NS"}
+
+
+def test_kite_stock_provider_keeps_full_universe_when_rollover_master_is_truncated(tmp_path):
+    class RolloverSession(Session):
+        names = ("HAL", "TCS", "INFY")
+
+        def get(self, url, **kwargs):
+            if url.endswith("/instruments/NSE"):
+                rows = ["instrument_token,tradingsymbol,instrument_type"]
+                rows.extend(f"{number},{name},EQ" for number, name in enumerate(self.names, 1))
+                return Response("\n".join(rows) + "\n")
+            return super().get(url, **kwargs)
+
+    session = RolloverSession()
+    clock = [datetime(2026, 2, 1, tzinfo=timezone.utc)]
+    provider = KiteStockProvider(
+        "key", "token", session=session, now=lambda: clock[0],
+        history_cache_dir=tmp_path, retries=1,
+    )
+    assert provider.available_nse_equities() == ("HAL.NS", "TCS.NS", "INFY.NS")
+
+    clock[0] += timedelta(days=1)
+    session.names = ("HAL",)
+    assert provider.available_nse_equities() == ("HAL.NS", "TCS.NS", "INFY.NS")
+    assert provider.instrument_master_stale is True
+    assert "truncated" in provider.instrument_master_error
+
+    session.names = ("HAL", "TCS", "INFY", "WIPRO")
+    assert provider.available_nse_equities() == (
+        "HAL.NS", "TCS.NS", "INFY.NS", "WIPRO.NS"
+    )
+    assert provider.instrument_master_stale is False
 
 
 def test_kite_provider_reuses_fresh_history_without_network_request(tmp_path):

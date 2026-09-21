@@ -25,31 +25,39 @@ def quote_change(reference_price, current_price):
 
 
 def group_top_options(rows, limit=10):
-    """Rank contracts independently within the next three exact expiries."""
-    selected_expiries = sorted({row["expiry"] for row in rows})[:3]
+    """Top contracts at each underlying's front, next, and far expiry."""
+    rows = list(rows)
+    expiries_by_underlying = {}
+    for row in rows:
+        expiries_by_underlying.setdefault(row["underlying"], set()).add(row["expiry"])
+    inferred_ranks = {
+        (underlying, expiry): rank
+        for underlying, expiries in expiries_by_underlying.items()
+        for rank, expiry in enumerate(sorted(expiries)[:3], 1)
+    }
     result = {}
-    for expiry in selected_expiries:
+    for rank in (1, 2, 3):
         candidates = sorted(
-            (row for row in rows if row["expiry"] == expiry),
-            key=lambda item: (-item["score"], item["underlying"], item["contract"]),
+            (
+                row for row in rows
+                if (
+                    row.get("expiry_rank")
+                    or inferred_ranks.get((row["underlying"], row["expiry"]))
+                ) == rank
+            ),
+            key=lambda item: (
+                -item["score"], item["underlying"], item["contract"]
+            ),
         )
-        # One direction-aligned contract per underlying prevents CE/PE pairs
-        # from crowding the cross-market ranking.
-        unique = []
-        seen_underlyings = set()
-        for item in candidates:
-            if item["underlying"] in seen_underlyings:
-                continue
-            seen_underlyings.add(item["underlying"])
-            unique.append(item)
-            if len(unique) == limit:
-                break
-        if unique:
-            result[expiry] = unique
+        if candidates:
+            result[rank] = candidates[:limit]
     return result
 
 
 def expiry_label(expiry):
+    relative_labels = {1: "Front expiry", 2: "Next expiry", 3: "Far expiry"}
+    if expiry in relative_labels:
+        return relative_labels[expiry]
     try:
         parsed = datetime.strptime(expiry, "%Y-%m-%d")
         return parsed.strftime("%d %b %Y")
@@ -77,7 +85,7 @@ def display_price(value):
     return "Quote unavailable" if value is None else f"₹{float(value):.2f}"
 
 
-def refresh_tracking_quotes(tracking_data, quotes, generated_at=None):
+def refresh_tracking_quotes(tracking_data, quotes, generated_at=None, lot_sizes=None):
     """Merge only quotes observed in the current scan into local tracking.
 
     Missing contracts retain their last known price and timestamp, but are
@@ -94,6 +102,18 @@ def refresh_tracking_quotes(tracking_data, quotes, generated_at=None):
                 str(item.get("contract", "")),
             )
             quote = quotes.get(key)
+            if item.get("lot_size") in (None, "", 0):
+                exact_contract = (
+                    item.get("underlying", ""), item.get("expiry", ""),
+                    item.get("strike"), item.get("option_type", ""),
+                )
+                lot_size = (lot_sizes or {}).get(exact_contract)
+                if lot_size is None and quote is not None:
+                    lot_size = quote.get("lot_size")
+                if isinstance(lot_size, int) and lot_size > 0:
+                    item["lot_size"] = lot_size
+            if item.get("one_lot_premium") is None and item.get("lot_size") and item.get("reference_price") is not None:
+                item["one_lot_premium"] = round(float(item["reference_price"]) * int(item["lot_size"]), 2)
             if quote is None:
                 item["quote_status"] = "UNAVAILABLE IN LATEST SCAN"
                 continue

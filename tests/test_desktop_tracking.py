@@ -3,12 +3,12 @@ from pathlib import Path
 import json
 
 from app.gui.tracking import (
-    LocalTrackingStore, contract_key, group_top_options, portfolio_state, quote_change,
-    refresh_tracking_quotes,
+    LocalTrackingStore, contract_key, expiry_label, group_top_options, portfolio_state,
+    quote_change, refresh_tracking_quotes,
 )
 
 
-def test_expiry_groups_rank_each_exact_expiry_independently():
+def test_expiry_groups_rank_each_relative_expiry_independently():
     rows = [
         {
             "expiry": expiry,
@@ -25,24 +25,41 @@ def test_expiry_groups_rank_each_exact_expiry_independently():
         for score in range(6)
     ]
     grouped = group_top_options(rows)
-    assert list(grouped) == ["2026-09-03", "2026-09-10", "2026-09-17"]
-    assert all(len(items) == 2 for items in grouped.values())
-    assert all(item["expiry"] == "2026-09-17" for item in grouped["2026-09-17"])
-    assert [item["score"] for item in grouped["2026-09-03"]] == [5, 5]
-    assert {item["underlying"] for item in grouped["2026-09-03"]} == {"NIFTY", "HAL"}
+    assert list(grouped) == [1, 2, 3]
+    assert all(len(items) == 10 for items in grouped.values())
+    assert all(item["expiry"] == "2026-09-17" for item in grouped[3])
+    assert [item["score"] for item in grouped[1][:2]] == [5, 5]
+    assert {item["underlying"] for item in grouped[1][:2]} == {"NIFTY", "HAL"}
 
 
-def test_expiry_groups_use_exact_dates_as_keys():
+def test_expiry_groups_infer_relative_buckets_for_divergent_legacy_calendars():
     rows = [
-        {"expiry": expiry, "score": 50, "underlying": "HAL", "contract": expiry}
-        for expiry in ("2026-09-24", "2026-10-29", "2026-11-26")
+        {"expiry": expiry, "score": 50, "underlying": underlying, "contract": expiry}
+        for underlying, expiries in (
+            ("NIFTY", ("2026-09-17", "2026-09-24", "2026-10-01")),
+            ("HAL", ("2026-09-24", "2026-10-29", "2026-11-26")),
+        )
+        for expiry in expiries
     ]
 
     grouped = group_top_options(rows)
 
-    assert [grouped[expiry][0]["expiry"] for expiry in grouped] == [
-        "2026-09-24", "2026-10-29", "2026-11-26",
+    assert list(grouped) == [1, 2, 3]
+    assert [
+        {item["expiry"] for item in grouped[rank] if item["underlying"] == "HAL"}
+        for rank in (1, 2, 3)
+    ] == [{"2026-09-24"}, {"2026-10-29"}, {"2026-11-26"}]
+    assert [
+        {item["expiry"] for item in grouped[rank] if item["underlying"] == "NIFTY"}
+        for rank in (1, 2, 3)
+    ] == [{"2026-09-17"}, {"2026-09-24"}, {"2026-10-01"}]
+
+
+def test_relative_expiry_labels_are_clear_while_exact_dates_remain_supported():
+    assert [expiry_label(rank) for rank in (1, 2, 3)] == [
+        "Front expiry", "Next expiry", "Far expiry",
     ]
+    assert expiry_label("2026-09-24") == "24 Sep 2026"
 
 
 def test_watchlist_calculation_and_persistence(tmp_path):
@@ -120,6 +137,24 @@ def test_tracking_refresh_marks_missing_contract_without_advancing_old_quote():
     assert tracked["watchlist"][0]["current_price"] == 12
     assert tracked["watchlist"][0]["updated_at"] == "2026-09-08T12:00:00+00:00"
     assert tracked["watchlist"][0]["quote_status"] == "UNAVAILABLE IN LATEST SCAN"
+
+
+def test_legacy_watchlist_lot_backfills_from_exact_contract_without_changing_saved_price():
+    tracked = {"watchlist": [{
+        "instrument_type": "OPTION", "underlying": "NIFTY", "expiry": "2026-09-29",
+        "contract": "21000 PE", "strike": 21000, "option_type": "PE",
+        "reference_price": 76.30, "current_price": 70.45,
+    }], "positions": []}
+    lot_sizes = {("NIFTY", "2026-09-29", 21000, "PE"): 75}
+
+    refresh_tracking_quotes(tracked, {}, lot_sizes=lot_sizes)
+
+    item = tracked["watchlist"][0]
+    assert item["reference_price"] == 76.30
+    assert item["current_price"] == 70.45
+    assert item["lot_size"] == 75
+    assert item["one_lot_premium"] == 5722.50
+    assert item["quote_status"] == "UNAVAILABLE IN LATEST SCAN"
 
 
 def test_tracking_refresh_preserves_cached_quote_timestamp_and_marks_quality():

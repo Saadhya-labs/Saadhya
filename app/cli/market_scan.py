@@ -41,6 +41,10 @@ class _CachedStockScanner:
                 "target": decision.get("target"),
                 "stop_loss": decision.get("stop_loss"),
                 "holding": report.holding,
+                "simple_reasons": list(report.simple_reasons),
+                "technical_reasons": list(report.technical_reasons),
+                "invalidation": list(report.invalidation),
+                "signals": dict(report.signals),
             })
         return results
 
@@ -50,12 +54,17 @@ class _CachedAnalyzer:
 
     def __init__(self, stock_scanner):
         self._stock_scanner = stock_scanner
+        self._reports_by_symbol = None
 
     def analyze(self, symbol):
-        for report in self._stock_scanner.reports:
-            if report.symbol == symbol:
-                return report
-        raise ValueError(f"No stock analysis report found for {symbol}")
+        if self._reports_by_symbol is None:
+            self._reports_by_symbol = {
+                report.symbol: report for report in self._stock_scanner.reports
+            }
+        try:
+            return self._reports_by_symbol[symbol]
+        except KeyError as exc:
+            raise ValueError(f"No stock analysis report found for {symbol}") from exc
 
 
 def build_market_scanner(
@@ -85,6 +94,7 @@ def build_market_scanner(
         StockScanner(
             analyzer=StockAnalyzer(stock_provider),
             symbols=symbols,
+            max_workers=3 if data_mode == "kite" and len(symbols) >= 500 else 1,
         )
     )
     if data_mode == "live":

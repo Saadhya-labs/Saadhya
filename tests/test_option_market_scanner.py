@@ -192,6 +192,10 @@ def test_scanner_marks_cached_option_recommendations_explicitly():
     recommendations = scanner.scan()
 
     assert {item["data_status"] for item in recommendations} == {"cached"}
+    assert any(
+        "Only 1 unexpired expiry level is available from cached quotes" in warning
+        for warning in recommendations[0]["warnings"]
+    )
 
 
 def test_scanner_warns_when_contract_master_is_cached_but_quotes_are_fresh():
@@ -228,7 +232,7 @@ def test_scanner_warns_when_contract_master_is_cached_but_quotes_are_fresh():
     assert scanner.coverage[0]["instrument_master_status"] == "cached"
 
 
-def test_scanner_keeps_only_direction_aligned_contract_per_underlying():
+def test_scanner_keeps_both_ce_and_pe_contracts_per_underlying():
     class OneIndex:
         def scan(self):
             return [{"symbol": "HAL.NS"}]
@@ -245,4 +249,48 @@ def test_scanner_keeps_only_direction_aligned_contract_per_underlying():
         ProbabilityEngine(), DummyMarketRegime(),
     )
     recommendations = scanner.scan()
-    assert {item["option"]["option"].option_type for item in recommendations} == {"CE"}
+    assert {item["option"]["option"].option_type for item in recommendations} == {"CE", "PE"}
+
+
+def test_scanner_keeps_multiple_strikes_on_both_sides():
+    class OneStock:
+        def scan(self):
+            return [{"symbol": "NIFTY"}]
+
+    class SixStrikes:
+        def get_option_chain(self, _symbol):
+            return [
+                OptionContract("NIFTY", "2026-09-29", strike, side, 100, 600000, 1500000, 20, .5, -.1)
+                for side in ("CE", "PE") for strike in (25000, 25100, 25200)
+            ]
+
+    scanner = OptionMarketScanner(
+        OneStock(), DummyAnalyzer(), SixStrikes(), OptionScanner(),
+        ProbabilityEngine(), DummyMarketRegime(),
+    )
+    rows = scanner.scan()
+    assert len(rows) == 6
+    assert {row["option"]["option"].option_type for row in rows} == {"CE", "PE"}
+
+
+def test_all_equities_option_scan_skips_cash_only_symbols():
+    class AllStocks:
+        def scan(self):
+            return [{"symbol": "NIFTY"}, {"symbol": "CASHONLY.NS"}]
+
+    class FnoProvider:
+        chain_failures = {}
+        stale_symbols = set()
+        def available_fno_underlyings(self):
+            return ("NIFTY",)
+        def get_option_chains(self, symbols):
+            self.requested = tuple(symbols)
+            return {"NIFTY": [OptionContract("NIFTY", "2026-09-29", 25000, "CE", 100, 100000, 200000, 20, .5, -.1)]}
+
+    provider = FnoProvider()
+    scanner = OptionMarketScanner(
+        AllStocks(), DummyAnalyzer(), provider, OptionScanner(),
+        ProbabilityEngine(), DummyMarketRegime(),
+    )
+    scanner.scan()
+    assert provider.requested == ("NIFTY",)

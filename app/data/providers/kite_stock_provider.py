@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import re
 import time
+import threading
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 import requests
 
 from app.data.providers.stock_provider import StockDataProvider
@@ -44,7 +47,8 @@ class KiteStockProvider(StockDataProvider):
     ):
         self.api_key = api_key
         self.access_token = access_token
-        self.session = session or requests.Session()
+        self.session = session
+        self._thread_sessions = threading.local()
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._instruments = None
         self._instruments_date = None
@@ -76,10 +80,16 @@ class KiteStockProvider(StockDataProvider):
         return symbol.upper().replace(".NS", "").replace("NSE:", "")
 
     def _get(self, path, **kwargs):
+        session = self.session
+        if session is None:
+            session = getattr(self._thread_sessions, "session", None)
+            if session is None:
+                session = requests.Session()
+                self._thread_sessions.session = session
         last_error = None
         for attempt in range(self.retries):
             try:
-                response = self.session.get(
+                response = session.get(
                     f"{self.API_ROOT}{path}", headers=self.headers, timeout=15, **kwargs
                 )
                 response.raise_for_status()
@@ -89,6 +99,13 @@ class KiteStockProvider(StockDataProvider):
                 if attempt + 1 < self.retries:
                     time.sleep(0.25 * (2**attempt))
         raise RuntimeError(f"Kite market data is temporarily unavailable: {last_error}") from last_error
+
+    def validate_session(self):
+        """Verify the configured daily token without placing or modifying orders."""
+        payload = self._get("/user/profile").json()
+        if payload.get("status") == "error" or not payload.get("data"):
+            raise RuntimeError("Kite did not accept the configured session.")
+        return payload["data"]
 
     def _load_instruments(self):
         current_date = self._now().date()
@@ -106,6 +123,23 @@ class KiteStockProvider(StockDataProvider):
                     for row in instruments
                 ):
                     raise ValueError("Kite returned an empty or malformed NSE instrument master.")
+                if self._instruments is not None:
+                    previous = {
+                        row.get("tradingsymbol") for row in self._instruments
+                        if row.get("instrument_type") == "EQ"
+                        and row.get("instrument_token")
+                        and row.get("tradingsymbol")
+                    }
+                    current = {
+                        row.get("tradingsymbol") for row in instruments
+                        if row.get("instrument_type") == "EQ"
+                        and row.get("instrument_token")
+                        and row.get("tradingsymbol")
+                    }
+                    if previous and len(current) < len(previous) * 0.8:
+                        raise ValueError(
+                            "Kite returned a truncated NSE instrument master."
+                        )
             except (RuntimeError, requests.RequestException, ValueError) as exc:
                 if self._instruments is None:
                     raise
@@ -173,11 +207,32 @@ class KiteStockProvider(StockDataProvider):
             frame = pd.read_json(
                 StringIO(payload["frame"]), orient="split", convert_dates=False
             )
+            frame = self._validated_history(frame)
         except (FileNotFoundError, OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
             return None
         self._last_history[cache_key] = frame
         self._history_fetched_at[cache_key] = fetched_at
         return frame.copy()
+
+    @staticmethod
+    def _validated_history(frame):
+        """Reject incomplete candles before they can become fresh signals."""
+        columns = ["Open", "High", "Low", "Close", "Volume"]
+        if frame.empty or any(column not in frame for column in columns):
+            raise ValueError("Kite returned incomplete historical candles.")
+        numeric = frame[columns].apply(pd.to_numeric, errors="coerce")
+        values = numeric.to_numpy(dtype=float)
+        if not np.isfinite(values).all():
+            raise ValueError("Kite returned nonfinite historical candles.")
+        prices = numeric[["Open", "High", "Low", "Close"]]
+        if (
+            (prices <= 0).any().any()
+            or (numeric["Volume"] < 0).any()
+            or (numeric["High"] < prices[["Open", "Low", "Close"]].max(axis=1)).any()
+            or (numeric["Low"] > prices[["Open", "High", "Close"]].min(axis=1)).any()
+        ):
+            raise ValueError("Kite returned invalid historical candles.")
+        return numeric
 
     def _save_persistent_history(self, cache_key, frame, fetched_at):
         try:
@@ -219,13 +274,16 @@ class KiteStockProvider(StockDataProvider):
                     "to": end.strftime("%Y-%m-%d %H:%M:%S"),
                 },
             )
-            candles = response.json().get("data", {}).get("candles", [])
-            if not candles:
+            payload = response.json()
+            data = payload.get("data") if isinstance(payload, dict) else None
+            candles = data.get("candles") if isinstance(data, dict) else None
+            if not isinstance(candles, list) or not candles:
                 raise ValueError(f"Kite returned no historical candles for {symbol}")
             frame = pd.DataFrame(
                 candles,
                 columns=["Date", "Open", "High", "Low", "Close", "Volume"],
             ).set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
+            frame = self._validated_history(frame)
             fetched_at = self._now()
             self._last_history[cache_key] = frame.copy()
             self._history_fetched_at[cache_key] = fetched_at
@@ -244,10 +302,17 @@ class KiteStockProvider(StockDataProvider):
         instrument = f"NSE:{trading_symbol}"
         try:
             response = self._get("/quote/ltp", params=[("i", instrument)])
-            data = response.json().get("data", {})
-            if instrument not in data:
+            payload = response.json()
+            data = payload.get("data") if isinstance(payload, dict) else None
+            quote = data.get(instrument) if isinstance(data, dict) else None
+            if not isinstance(quote, dict) or "last_price" not in quote:
                 raise ValueError(f"Kite returned no live quote for {instrument}")
-            price = float(data[instrument]["last_price"])
+            try:
+                price = float(quote["last_price"])
+            except (TypeError, OverflowError) as exc:
+                raise ValueError(f"Kite returned an invalid live quote for {instrument}") from exc
+            if not math.isfinite(price) or price <= 0:
+                raise ValueError(f"Kite returned an invalid live quote for {instrument}")
             self._last_prices[instrument] = price
             self.stale_symbols.discard(symbol.upper())
             return price

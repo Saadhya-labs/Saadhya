@@ -1,35 +1,20 @@
-import hashlib
-import os
-
-from app.integrations.kite_login import KiteLogin
+from pathlib import Path
 
 
-class Response:
-    def raise_for_status(self):
-        return None
-
-    def json(self):
-        return {"data": {"access_token": "daily-token"}}
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-class Session:
-    def __init__(self):
-        self.request = None
+def test_recommendation_app_has_no_kite_token_exchange_or_persistence():
+    recommendation_paths = (
+        PROJECT_ROOT / "app" / "gui" / "desktop.py",
+        PROJECT_ROOT / "app" / "cli" / "market_scan.py",
+        PROJECT_ROOT / "app" / "config" / "provider_factory.py",
+    )
+    source = "\n".join(path.read_text(encoding="utf-8") for path in recommendation_paths)
 
-    def post(self, url, **kwargs):
-        self.request = (url, kwargs)
-        return Response()
-
-
-def test_kite_login_exchanges_and_persists_daily_token(tmp_path, monkeypatch):
-    session = Session()
-    login = KiteLogin("key", "secret", "http://127.0.0.1:8000/kite/callback", session=session)
-    monkeypatch.setattr(login, "_receive_request_token", lambda callback: "request-token")
-    monkeypatch.setattr(login, "_environment_path", lambda: tmp_path / ".env")
-
-    assert login.authenticate() == "daily-token"
-
-    expected = hashlib.sha256(b"keyrequest-tokensecret").hexdigest()
-    assert session.request[1]["data"]["checksum"] == expected
-    assert (tmp_path / ".env").read_text(encoding="utf-8") == "KITE_ACCESS_TOKEN=daily-token\n"
-    assert os.environ["KITE_ACCESS_TOKEN"] == "daily-token"
+    assert not (PROJECT_ROOT / "app" / "integrations" / "kite_login.py").exists()
+    assert "KiteLogin" not in source
+    assert "request_token" not in source
+    assert "session/token" not in source
+    assert "KITE_API_SECRET" not in source
+    assert "persist_access_token" not in source

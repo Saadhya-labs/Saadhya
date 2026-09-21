@@ -14,6 +14,64 @@ def test_desktop_application_module_is_importable():
     assert len(NSE_STOCKS) > 1
 
 
+def test_market_overview_selects_stocks_without_option_rows():
+    from app.gui.desktop import stock_overview_opportunities
+
+    opportunities = [
+        {"type": "OPTION", "symbol": "NIFTY", "score": 100, "details": {}},
+        {"type": "STOCK", "symbol": "HAL", "score": 72, "details": {}},
+        {"type": "STOCK", "symbol": "TCS", "score": 82, "details": {}},
+    ]
+    rows = stock_overview_opportunities(opportunities)
+    assert [row["symbol"] for row in rows] == ["TCS", "HAL"]
+    assert [row["rank"] for row in rows] == [1, 2]
+
+
+def test_rationale_matches_visible_stock_and_option_recommendations():
+    from app.gui.desktop import displayed_rationale_items
+    from app.options.models import OptionContract
+
+    opportunities = [
+        {"type": "STOCK", "symbol": f"STOCK{i}", "score": 100 - i, "details": {}}
+        for i in range(12)
+    ]
+    for strike in (100, 110):
+        contract = OptionContract("NIFTY", "2026-09-29", strike, "CE", 10, 1, 1, 0, 0, 0)
+        opportunities.append({
+            "type": "OPTION", "symbol": "NIFTY", "score": 80,
+            "details": {"option": {"option": contract}, "expiry": contract.expiry},
+        })
+    shown = displayed_rationale_items(opportunities, [{
+        "underlying": "NIFTY", "expiry": "2026-09-29", "contract": "110 CE",
+    }])
+    assert len(shown) == 11
+    assert sum(item["type"] == "STOCK" for item in shown) == 10
+    assert shown[-1]["details"]["option"]["option"].strike == 110
+
+
+def test_rationale_scenario_and_news_do_not_invent_catalysts():
+    from app.gui.desktop import option_score_evidence, rationale_news, rationale_scenario
+
+    item = {"type": "OPTION", "details": {}}
+    row = {
+        "option_type": "PE", "underlying": "NIFTY", "expiry": "2026-09-29",
+        "premium": "₹10.00", "target": "₹15.00–₹20.00", "invalidation": "₹7.00",
+    }
+    assert "falls" in rationale_scenario(item, row)
+    assert "time decay" in rationale_scenario(item, row)
+    assert "No news catalyst" in rationale_news(item)
+    with_news = {"details": {"news_impact": {"headlines": [{
+        "title": "Results announcement", "published_at": "2026-09-17",
+    }]}}}
+    assert "Results announcement" in rationale_news(with_news)
+    score_reasons = option_score_evidence({"details": {"option": {"breakdown": {
+        "direction": 25, "liquidity": 12.5, "delta": 0,
+    }}}})
+    assert any("underlying trend" in reason for reason in score_reasons)
+    assert any("12.5" in reason for reason in score_reasons)
+    assert all("probability" not in reason.lower() for reason in score_reasons)
+
+
 class Variable:
     def __init__(self, value=None):
         self.value = value
@@ -75,28 +133,105 @@ def test_watchlist_first_column_toggles_a_remove_checkbox():
     assert app._checked_watchlist_keys == set()
 
 
-def test_kite_mode_requires_daily_connection_before_scan():
+def test_recommendation_table_sorts_numeric_value_and_score():
+    from app.gui.desktop import SaadhyaDesktopApp
+
+    class Table:
+        _saadhya_sort = None
+        def __init__(self):
+            self.order = ["low", "high"]
+            self.rows = {"low": ("₹900.00", "60.0 · WATCH"), "high": ("₹1,200.00", "85.0 · STRONG")}
+        def __getitem__(self, key):
+            assert key == "columns"
+            return ("value", "score")
+        def item(self, item_id, _option):
+            return self.rows[item_id]
+        def get_children(self, _root):
+            return self.order
+        def move(self, item_id, _root, position):
+            self.order.remove(item_id)
+            self.order.insert(position, item_id)
+
+    table = Table()
+    SaadhyaDesktopApp._sort_table(table, "value")
+    assert table.order == ["low", "high"]
+    SaadhyaDesktopApp._sort_table(table, "value")
+    assert table.order == ["high", "low"]
+    SaadhyaDesktopApp._sort_table(table, "score")
+    assert table.order == ["low", "high"]
+    SaadhyaDesktopApp._sort_table(table, "score", descending=True)
+    assert table.order == ["high", "low"]
+
+
+def test_watchlist_row_shows_underlying_and_recommendation_details():
+    from app.gui.desktop import SaadhyaDesktopApp
+
+    class Table:
+        def insert(self, _parent, _where, values):
+            self.values = values
+            return "I001"
+
+    table = Table()
+    app = SimpleNamespace(
+        _checked_watchlist_keys=set(), _watchlist_rows_by_id={},
+        _tracking_status=SaadhyaDesktopApp._tracking_status,
+    )
+    item = {
+        "instrument_type": "OPTION", "underlying": "NIFTY", "contract": "25000 CE",
+        "expiry": "2026-09-29", "strike": 25000, "option_type": "CE",
+        "reference_price": 100, "current_price": 110, "lot_size": 75,
+        "one_lot_premium": 7500, "entry": "₹90–110", "target": "₹150–200",
+        "projected_roi_pct": 50, "invalidation": "₹70", "score": 85,
+        "assessment": "STRONG SETUP",
+    }
+    SaadhyaDesktopApp._insert_watchlist_row(app, table, item)
+    assert table.values[1:4] == ("NIFTY", "25000 CE", "2026-09-29")
+    assert "₹7,500.00" in table.values
+    assert "85.0 · STRONG SETUP" in table.values
+
+
+def test_kite_mode_uses_externally_configured_session_without_login_gate():
     from app.gui.desktop import SaadhyaDesktopApp
 
     app = SimpleNamespace(
         mode=Variable("kite"),
-        kite_connected_on=None,
         scan_button=Button("disabled"),
-        connect_button=Button("disabled"),
         connection=Variable(),
         status=Variable(),
     )
 
     SaadhyaDesktopApp._data_mode_changed(app)
 
-    assert app.scan_button.state == "disabled"
-    assert app.connect_button.state == "normal"
-    assert app.connection.get() == "KITE NOT CONNECTED"
-    assert "Connect to Kite" in app.status.get()
+    assert app.scan_button.state == "normal"
+    assert app.connection.get() == "KITE / EXTERNAL SESSION"
+    assert "externally configured" in app.status.get()
 
     source = (PROJECT_ROOT / "app/gui/desktop.py").read_text(encoding="utf-8")
-    assert "KiteLogin" in source
-    assert "connect_kite" in source
+    assert "KiteLogin" not in source
+    assert "connect_kite" not in source
+    assert "KITE_API_SECRET" not in source
+    assert 'self.symbols = tk.StringVar(value="ALL_FNO")' in source
+    assert not (PROJECT_ROOT / "app/integrations/kite_login.py").exists()
+
+
+def test_projected_roi_and_rationale_use_existing_analysis_evidence():
+    from app.gui.desktop import recommendation_rationale
+    from app.reports.recommendation_report import projected_roi
+
+    item = {
+        "type": "STOCK",
+        "details": {
+            "simple_reasons": ["Buying momentum is increasing."],
+            "technical_reasons": ["MACD Bullish"],
+            "invalidation": ["Momentum reversal"],
+        },
+    }
+    reasons, risks = recommendation_rationale(item)
+    assert reasons == ["Buying momentum is increasing.", "MACD Bullish"]
+    assert risks == ["Momentum reversal"]
+    assert projected_roi(100, 112, "BUY") == 12.0
+    assert projected_roi(100, 90, "SELL") == 10.0
+    assert projected_roi(None, 112, "BUY") is None
 
 
 def test_option_workspace_summarizes_three_expiries_and_cached_quotes():
@@ -136,7 +271,7 @@ def test_option_workspace_summarizes_three_expiries_and_cached_quotes():
     assert {row["asset_class"] for row in rows} == {"INDEX", "STOCK"}
     assert summary == (
         "3 recommendations  •  2/2 chains analyzed (1 index, 1 stock)  •  "
-        "2 expiry levels per underlying  •  1 cached chain  •  1 unavailable chain"
+        "0/2 chains cover 3 expiries  •  1 cached chain  •  1 unavailable chain"
     )
 
 
@@ -160,6 +295,18 @@ def test_option_workspace_prefers_explicit_cached_status_over_warning_text():
     assert rows[0]["data_status"] == "cached"
 
 
+def test_cached_option_without_quote_time_does_not_inherit_scan_time():
+    from app.gui.desktop import option_quote_updated_at
+
+    scan_time = "2026-09-17T06:30:00+00:00"
+    assert option_quote_updated_at({"is_cached": True}, scan_time) is None
+    assert option_quote_updated_at({"is_cached": False}, scan_time) == scan_time
+    assert option_quote_updated_at(
+        {"is_cached": True, "updated_at": "2026-09-17T06:00:00+00:00"},
+        scan_time,
+    ) == "2026-09-17T06:00:00+00:00"
+
+
 def test_option_workspace_summary_uses_analyzed_chain_coverage():
     from app.gui.desktop import option_coverage_summary
 
@@ -170,7 +317,7 @@ def test_option_workspace_summary_uses_analyzed_chain_coverage():
         },
         {
             "underlying": "HAL", "status": "cached",
-            "expiries": ["2026-09-24", "2026-10-29", "2026-11-26"],
+            "expiries": ["2026-10-29", "2026-11-26"],
         },
         {"underlying": "TCS", "status": "unavailable", "expiries": []},
     ], "scan_failures": [{"symbol": "TCS", "source": "option-chain"}]}
@@ -179,7 +326,7 @@ def test_option_workspace_summary_uses_analyzed_chain_coverage():
 
     assert summary == (
         "1 recommendation  •  2/3 chains analyzed (1 index, 1 stock)  •  "
-        "3 expiry levels per underlying  •  1 cached chain  •  1 unavailable chain"
+        "1/2 chains cover 3 expiries  •  1 cached chain  •  1 unavailable chain"
     )
 
 
@@ -208,6 +355,7 @@ def test_failed_scan_rearms_auto_refresh_after_enabling_scan_control():
         status=Variable(),
         connection=Variable(),
         auto_refresh=Variable(True),
+        mode=Variable("mock"),
         scan_button=button,
         _refresh_interval=lambda: 60,
         _set_details=lambda content: None,
@@ -223,6 +371,39 @@ def test_failed_scan_rearms_auto_refresh_after_enabling_scan_control():
     assert scheduled_states == ["normal"]
     assert app.connection.get() == "RECONNECT NEEDED"
     assert "retry in 60 seconds" in app.status.get()
+
+
+def test_expiry_refresh_destroys_old_tab_widgets():
+    from app.gui.desktop import SaadhyaDesktopApp
+
+    class Tab:
+        def __init__(self, notebook, name):
+            self.notebook = notebook
+            self.name = name
+            self.destroyed = False
+
+        def destroy(self):
+            self.destroyed = True
+            self.notebook.children.pop(self.name)
+
+    class Notebook:
+        def __init__(self):
+            self.children = {}
+
+        def tabs(self):
+            return tuple(self.children)
+
+        def nametowidget(self, tab_id):
+            return self.children[tab_id]
+
+    notebook = Notebook()
+    old_tabs = [Tab(notebook, name) for name in ("front", "next", "far")]
+    notebook.children = {tab.name: tab for tab in old_tabs}
+
+    SaadhyaDesktopApp._clear_notebook_tabs(notebook)
+
+    assert notebook.tabs() == ()
+    assert all(tab.destroyed for tab in old_tabs)
 
 
 class FakeOptionTable:
@@ -300,3 +481,24 @@ def test_failed_refresh_marks_visible_options_and_tracking_unavailable():
     assert app._latest_quotes == {}
     assert tracked["watchlist"][0]["quote_status"] == "UNAVAILABLE IN LATEST SCAN"
     assert saved and rendered
+
+
+def test_overview_selection_uses_current_column_positions():
+    from app.gui.desktop import SaadhyaDesktopApp
+
+    table = FakeOptionTable()
+    table.rows["I001"] = [
+        1, "STOCK", "HAL.NS", "WATCH", "₹100.00", "₹98.00–₹102.00",
+        "₹115.00", "+15.00%", 82, "MEDIUM", "NEUTRAL",
+    ]
+    rendered = []
+    app = SimpleNamespace(
+        table=table, opportunities=[],
+        _set_details=lambda content: rendered.append(content),
+    )
+
+    SaadhyaDesktopApp._show_selected(app, None)
+
+    assert "Projected ROI: +15.00%" in rendered[0]
+    assert "Score: 82 | Risk: MEDIUM" in rendered[0]
+    assert "News impact: NEUTRAL" in rendered[0]

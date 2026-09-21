@@ -24,9 +24,9 @@ class Session:
     def get(self, url, **kwargs):
         if url.endswith("/instruments"):
             return Response(
-                "exchange,tradingsymbol,name,expiry,strike,instrument_type\n"
-                "NFO,HAL26SEP100CE,HAL,2026-09-24,100,CE\n"
-                "NFO,HAL26SEP100PE,HAL,2026-09-24,100,PE\n"
+                "exchange,tradingsymbol,name,expiry,strike,instrument_type,lot_size\n"
+                "NFO,HAL26SEP100CE,HAL,2026-09-24,100,CE,75\n"
+                "NFO,HAL26SEP100PE,HAL,2026-09-24,100,PE,75\n"
             )
         if url.endswith("/quote/ltp"):
             return Response(payload={"data": {"NSE:HAL": {"last_price": 101}}})
@@ -46,7 +46,23 @@ def test_kite_option_provider_returns_near_expiry_read_only_quotes():
 
     assert [option.option_type for option in options] == ["CE", "PE"]
     assert options[0].premium == 6.0
+    assert options[0].lot_size == 75
+    assert options[0].one_lot_premium == 450.0
     assert options[0].delta == 0.0
+
+
+def test_saved_watchlist_lot_lookup_requires_exact_expiry_strike_and_side():
+    provider = KiteOptionProvider("key", "token", session=Session())
+    provider._instruments = [{
+        "exchange": "NFO", "name": "NIFTY", "expiry": "2026-09-29",
+        "strike": "21000", "instrument_type": "PE", "lot_size": "75",
+    }]
+    saved = [
+        ("NIFTY", "2026-09-29", 21000, "PE"),
+        ("NIFTY", "2026-09-29", 21000, "CE"),
+        ("NIFTY", "2026-10-29", 21000, "PE"),
+    ]
+    assert provider.lot_sizes_for_contracts(saved) == {saved[0]: 75}
 
 
 class LargeChainSession:
@@ -122,6 +138,137 @@ def test_kite_option_provider_batches_quotes_across_full_fno_universe():
     assert {option.expiry for option in chains["TCS"]} == {
         "2026-09-24", "2026-10-29", "2026-11-26"
     }
+
+
+def test_kite_option_provider_keeps_full_universe_when_rollover_master_is_truncated():
+    class RolloverSession:
+        names = ("HAL", "TCS", "NIFTY")
+
+        def get(self, url, **_kwargs):
+            assert url.endswith("/instruments")
+            rows = ["exchange,tradingsymbol,name,expiry,strike,instrument_type"]
+            rows.extend(
+                f"NFO,{name}26SEPCE,{name},2026-09-24,100,CE"
+                for name in self.names
+            )
+            return Response("\n".join(rows) + "\n")
+
+    session = RolloverSession()
+    clock = [date(2026, 9, 1)]
+    provider = KiteOptionProvider(
+        "key", "token", session=session, today=lambda: clock[0], retries=1
+    )
+    assert provider.available_fno_underlyings() == ("HAL", "NIFTY", "TCS")
+
+    clock[0] = date(2026, 9, 2)
+    session.names = ("HAL",)
+    assert provider.available_fno_underlyings() == ("HAL", "NIFTY", "TCS")
+    assert provider.instrument_master_stale is True
+    assert "truncated" in provider.instrument_master_error
+
+    session.names = ("HAL", "TCS", "NIFTY", "INFY")
+    assert provider.available_fno_underlyings() == ("HAL", "INFY", "NIFTY", "TCS")
+    assert provider.instrument_master_stale is False
+
+
+def test_kite_option_provider_rejects_missing_strikes_with_names_intact():
+    class RolloverSession:
+        strikes = range(5)
+
+        def get(self, url, **_kwargs):
+            assert url.endswith("/instruments")
+            rows = ["exchange,tradingsymbol,name,expiry,strike,instrument_type"]
+            rows.extend(
+                f"NFO,{name}26SEP{strike}CE,{name},2026-09-24,{strike},CE"
+                for name in ("HAL", "TCS") for strike in self.strikes
+            )
+            return Response("\n".join(rows) + "\n")
+
+    session = RolloverSession()
+    current_day = [date(2026, 9, 1)]
+    provider = KiteOptionProvider(
+        "key", "token", session=session, today=lambda: current_day[0], retries=1
+    )
+    assert len(provider._load_instruments()) == 10
+
+    current_day[0] = date(2026, 9, 2)
+    session.strikes = range(2)
+    assert len(provider._load_instruments()) == 10
+    assert provider.instrument_master_stale is True
+    assert "truncated" in provider.instrument_master_error
+
+    session.strikes = range(6)
+    assert len(provider._load_instruments()) == 12
+    assert provider.instrument_master_stale is False
+
+
+def test_kite_option_provider_rejects_one_damaged_chain_in_large_master():
+    class RolloverSession:
+        truncated_underlying = None
+
+        def get(self, url, **_kwargs):
+            assert url.endswith("/instruments")
+            rows = ["exchange,tradingsymbol,name,expiry,strike,instrument_type"]
+            for name in ("HAL", "TCS", "INFY", "RELIANCE", "SBIN"):
+                expiries = (
+                    ("2026-09-24", "2026-10-29")
+                    if name == self.truncated_underlying
+                    else ("2026-09-24", "2026-10-29", "2026-11-26")
+                )
+                for expiry_number, expiry in enumerate(expiries):
+                    rows.extend(
+                        f"NFO,{name}{expiry_number}{strike}CE,{name},{expiry},{strike},CE"
+                        for strike in range(4)
+                    )
+            return Response("\n".join(rows) + "\n")
+
+    session = RolloverSession()
+    current_day = [date(2026, 9, 1)]
+    provider = KiteOptionProvider(
+        "key", "token", session=session, today=lambda: current_day[0], retries=1
+    )
+    assert len(provider._load_instruments()) == 60
+
+    current_day[0] = date(2026, 9, 2)
+    session.truncated_underlying = "HAL"
+    assert len(provider._load_instruments()) == 60
+    assert provider.instrument_master_stale is True
+    assert "for HAL" in provider.instrument_master_error
+
+    session.truncated_underlying = None
+    assert len(provider._load_instruments()) == 60
+    assert provider.instrument_master_stale is False
+
+
+def test_kite_option_provider_allows_expired_contracts_to_roll_off():
+    class RolloverSession:
+        include_expired = True
+
+        def get(self, url, **_kwargs):
+            assert url.endswith("/instruments")
+            rows = ["exchange,tradingsymbol,name,expiry,strike,instrument_type"]
+            if self.include_expired:
+                rows.extend(
+                    f"NFO,HAL26SEP{strike}CE,HAL,2026-09-01,{strike},CE"
+                    for strike in range(8)
+                )
+            rows.extend(
+                f"NFO,HAL26OCT{strike}CE,HAL,2026-10-29,{strike},CE"
+                for strike in range(2)
+            )
+            return Response("\n".join(rows) + "\n")
+
+    session = RolloverSession()
+    current_day = [date(2026, 9, 1)]
+    provider = KiteOptionProvider(
+        "key", "token", session=session, today=lambda: current_day[0], retries=1
+    )
+    assert len(provider._load_instruments()) == 10
+
+    current_day[0] = date(2026, 9, 2)
+    session.include_expired = False
+    assert len(provider._load_instruments()) == 2
+    assert provider.instrument_master_stale is False
 
 
 def test_kite_option_provider_selects_monthly_not_weekly_index_expiries():
@@ -263,6 +410,7 @@ class IncompleteQuoteSession:
     def __init__(self):
         self.quote_call = 0
         self.omit_one = False
+        self.bad_price = False
 
     def get(self, url, **kwargs):
         if url.endswith("/instruments"):
@@ -276,10 +424,13 @@ class IncompleteQuoteSession:
         keys = [value for _, value in kwargs.get("params", [])]
         if self.omit_one:
             keys = keys[:-1]
-        return Response(payload={"data": {
+        data = {
             key: {"last_price": self.quote_call, "volume": 1, "oi": 1}
             for key in keys
-        }})
+        }
+        if self.bad_price:
+            data[keys[-1]]["last_price"] = "not-a-price"
+        return Response(payload={"data": data})
 
 
 def test_kite_option_provider_rejects_silently_incomplete_chain_and_uses_cache():
@@ -323,6 +474,45 @@ def test_single_chain_fetch_uses_cache_when_response_is_incomplete():
 
     assert len(refreshed) == 2
     assert refreshed[0].premium == initial[0].premium
+    assert provider.stale_symbols == {"HAL"}
+
+
+def test_batched_fetch_uses_complete_cache_when_quote_price_is_unusable():
+    session = IncompleteQuoteSession()
+    provider = KiteOptionProvider(
+        "key", "token", session=session, today=lambda: date(2026, 9, 1), retries=1
+    )
+    initial = provider.get_option_chains(("HAL",))["HAL"]
+
+    session.bad_price = True
+    refreshed = provider.get_option_chains(("HAL",))
+
+    assert [item.premium for item in refreshed["HAL"]] == [item.premium for item in initial]
+    assert provider.stale_symbols == {"HAL"}
+
+
+def test_unusable_quote_without_cache_reports_unavailable_chain():
+    session = IncompleteQuoteSession()
+    session.bad_price = True
+    provider = KiteOptionProvider(
+        "key", "token", session=session, today=lambda: date(2026, 9, 1), retries=1
+    )
+
+    assert provider.get_option_chains(("HAL",)) == {}
+    assert "1 quote(s) unusable" in provider.chain_failures["HAL"]
+
+
+def test_single_chain_fetch_uses_cache_when_quote_price_is_unusable():
+    session = IncompleteQuoteSession()
+    provider = KiteOptionProvider(
+        "key", "token", session=session, today=lambda: date(2026, 9, 1), retries=1
+    )
+    initial = provider.get_option_chain("HAL")
+
+    session.bad_price = True
+    refreshed = provider.get_option_chain("HAL")
+
+    assert [item.premium for item in refreshed] == [item.premium for item in initial]
     assert provider.stale_symbols == {"HAL"}
 
 

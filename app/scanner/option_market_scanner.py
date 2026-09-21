@@ -36,6 +36,16 @@ class OptionMarketScanner:
         self.failures = []
         self.coverage = []
         stocks = self.stock_scanner.scan()
+        # An all-equities scan can contain thousands of cash-only symbols.
+        # Only listed F&O underlyings need option-chain planning and quotes.
+        available_fno = getattr(self.option_provider, "available_fno_underlyings", None)
+        if callable(available_fno):
+            try:
+                eligible = {self._underlying(symbol) for symbol in available_fno()}
+                stocks = [stock for stock in stocks if self._underlying(stock["symbol"]) in eligible]
+            except (requests.RequestException, RuntimeError, ValueError):
+                # Preserve the existing per-symbol diagnostic path on a failed master.
+                pass
 
         batch_chains = None
         get_option_chains = getattr(self.option_provider, "get_option_chains", None)
@@ -127,6 +137,13 @@ class OptionMarketScanner:
 
             selected_expiries = sorted(by_expiry)
             is_cached = underlying in getattr(self.option_provider, "stale_symbols", ())
+            if is_cached and len(selected_expiries) < 3:
+                provider_warnings.append(
+                    f"Only {len(selected_expiries)} unexpired expiry "
+                    f"{'level is' if len(selected_expiries) == 1 else 'levels are'} "
+                    "available from cached quotes; the three-expiry curve "
+                    "will be checked again after reconnect."
+                )
             coverage.update({
                 "status": "cached" if is_cached else "fresh",
                 "expiries": selected_expiries,
@@ -138,25 +155,16 @@ class OptionMarketScanner:
             # Rank each expiry independently so the nearest expiry cannot
             # crowd the rest of the three-expiry curve out of the results.
             for expiry_rank, expiry in enumerate(selected_expiries, 1):
-                # Keep the strongest CE and PE candidate eligible for the
-                # cross-market top-ten. This is especially important for
-                # NIFTY and other indices; direction alignment remains part
-                # of the existing score instead of being bypassed.
+                # Retain several independently ranked strikes on both sides.
+                # Direction alignment is already reflected in OptionRanker.
                 ranked_by_type = []
-                option_types = (
-                    ("CE", "PE") if underlying == "NIFTY" else
-                    ("CE",) if report.direction == "BUY" else
-                    ("PE",) if report.direction == "SELL" else
-                    ("CE", "PE")
-                )
-                for option_type in option_types:
+                for option_type in ("CE", "PE"):
                     contracts = [
                         contract for contract in by_expiry[expiry]
                         if contract.option_type == option_type
                     ]
                     ranked = self.option_scanner.scan(contracts, report.direction)
-                    if ranked:
-                        ranked_by_type.append(ranked[0])
+                    ranked_by_type.extend(ranked[:3])
 
                 for best_option in ranked_by_type:
                     probability = self.probability_engine.calculate(

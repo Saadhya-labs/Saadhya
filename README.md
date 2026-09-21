@@ -24,11 +24,22 @@ Use `--format json` for machine-readable output:
 .\.venv\Scripts\python.exe -m app --format json
 ```
 
-The default is deterministic mock data. To use live data, set `DATA_MODE=live`; live providers depend on upstream availability and are not used by the default test suite.
+The default is externally configured, read-only Kite market data. Set
+`DATA_MODE=mock` for a deterministic offline scan or `DATA_MODE=live` for the
+public live providers; network-backed providers are not used by the default
+test suite.
 
 ## Desktop application
 
-Double-click `saadhya_desktop.pyw` to open the Windows desktop interface. It defaults to the supported NSE universe, automatically ranks the top opportunities, and provides mock/live selection, an editable scan universe, source warnings, and JSON export. It can auto-refresh with a 60-second minimum interval to respect public data-provider limits. The packaged Windows application is generated as `outputs\Saadhya.exe`.
+Double-click `saadhya_desktop.pyw` to open the Windows desktop interface. It
+defaults to the full NSE F&O universe, automatically ranks the top
+opportunities, and provides mock/live/Kite selection, an editable scan
+universe, source warnings, and JSON export. Dedicated recommendation views show
+the price at recommendation, target scenario, projected ROI, supporting
+analysis evidence, and risks; projected ROI is not a guaranteed return or a
+calibrated probability. It can auto-refresh with a 60-second minimum interval
+to respect data-provider limits. The packaged Windows application is generated
+as `outputs\Saadhya.exe`.
 
 In live mode, Saadhya reads recent Google News RSS headlines for each stock and labels their keyword-based impact as positive, negative, neutral, or unavailable. This is transparent context for the technical recommendation; it does not alter the technical score or act as a forecast.
 
@@ -38,11 +49,15 @@ Kite market-data providers remain alive between desktop refreshes. If a
 temporary disconnect occurs after a successful fetch, Saadhya keeps the last
 known stock history or option chain visible and marks the connection as
 `DEGRADED / CACHED` until fresh data succeeds again.
+Stock candles with invalid prices or volume and nonfinite or malformed live
+prices are also treated as unavailable; they cannot replace last-known-good
+market data or appear as fresh recommendations.
 During a full-universe refresh, a failed Kite quote batch falls back only for
 the affected underlyings; successful batches remain fresh, and an uncached
 symbol failure does not discard recommendations from the rest of the scan.
-A successful response that omits listed contracts is treated as incomplete,
-so Saadhya never replaces a complete chain with silently partial data.
+  A successful response that omits listed contracts or contains unusable quote
+  values is treated as incomplete, so Saadhya never replaces a complete chain
+  with silently partial data.
 Cached option recommendations retain their original quote timestamp. Tracked
 contracts that disappear from a later scan keep their last known price but are
 marked unavailable instead of being presented as freshly updated.
@@ -53,6 +68,12 @@ masters after a date rollover, so newly listed symbols and expiries become
 available without restarting the application. Empty, malformed, or temporarily
 unavailable daily masters never replace the last complete copy; Saadhya keeps
 using that copy, marks the connection degraded, and retries on the next refresh.
+If a rollover download loses more than a fifth of previously listed symbols,
+still-live option contracts overall, or the live contracts for any one
+underlying, Saadhya treats it as truncated and preserves the prior universe.
+This prevents one damaged index or stock chain from silently losing a future
+expiry while the rest of a large master looks complete. Contracts that expired
+at rollover are excluded from that check.
 If an entire refresh fails, the last successful option rows also remain visible
 but switch to `UNAVAILABLE IN LATEST SCAN` until a successful refresh replaces them.
 

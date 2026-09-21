@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from datetime import date, datetime, timezone
 from io import StringIO
+import math
 import time
 
 import requests
@@ -104,6 +105,78 @@ class KiteOptionProvider(OptionDataProvider):
                     raise ValueError(
                         "Kite returned an empty or malformed option instrument master."
                     )
+                if self._instruments is not None:
+                    previous = {
+                        row.get("name") for row in self._instruments
+                        if row.get("exchange") == "NFO"
+                        and row.get("instrument_type") in {"CE", "PE"}
+                        and row.get("tradingsymbol")
+                        and row.get("expiry")
+                        and row.get("name")
+                    }
+                    current = {
+                        row.get("name") for row in instruments
+                        if row.get("exchange") == "NFO"
+                        and row.get("instrument_type") in {"CE", "PE"}
+                        and row.get("tradingsymbol")
+                        and row.get("expiry")
+                        and row.get("name")
+                    }
+                    if previous and len(current) < len(previous) * 0.8:
+                        raise ValueError(
+                            "Kite returned a truncated option instrument master."
+                        )
+                    # Names alone do not catch a master that retains every
+                    # underlying but drops most strikes or expiries. Compare
+                    # only contracts still live today so a normal expiry
+                    # rollover does not look like a truncated download.
+                    def live_contracts_by_underlying(rows):
+                        contracts = {}
+                        for row in rows:
+                            if (
+                                row.get("exchange") not in {"NFO", "BFO"}
+                                or row.get("instrument_type") not in {"CE", "PE"}
+                                or not row.get("tradingsymbol")
+                                or not row.get("name")
+                                or row.get("expiry", "") < current_date.isoformat()
+                            ):
+                                continue
+                            contracts.setdefault(row["name"], set()).add(
+                                (row["exchange"], row["tradingsymbol"])
+                            )
+                        return contracts
+
+                    previous_by_underlying = live_contracts_by_underlying(
+                        self._instruments
+                    )
+                    current_by_underlying = live_contracts_by_underlying(instruments)
+                    previous_contracts = set().union(
+                        *previous_by_underlying.values()
+                    ) if previous_by_underlying else set()
+                    current_contracts = set().union(
+                        *current_by_underlying.values()
+                    ) if current_by_underlying else set()
+                    if previous_contracts and len(current_contracts) < len(previous_contracts) * 0.8:
+                        raise ValueError(
+                            "Kite returned a truncated option instrument master."
+                        )
+                    # A full-universe count can hide a damaged chain for one
+                    # underlying when every other chain is intact. Validate
+                    # each still-live chain independently so a missing future
+                    # expiry or strike set cannot look like fresh coverage.
+                    for underlying, previous_chain in previous_by_underlying.items():
+                        # A whole underlying can leave the derivative universe;
+                        # the aggregate name guard handles suspicious mass loss.
+                        # This check targets retained but partially downloaded
+                        # chains, which are otherwise hidden by universe totals.
+                        if underlying not in current_by_underlying:
+                            continue
+                        current_chain = current_by_underlying[underlying]
+                        if len(current_chain) < len(previous_chain) * 0.8:
+                            raise ValueError(
+                                "Kite returned a truncated option instrument master "
+                                f"for {underlying}."
+                            )
             except (RuntimeError, requests.RequestException, ValueError) as exc:
                 if self._instruments is None:
                     raise
@@ -170,6 +243,30 @@ class KiteOptionProvider(OptionDataProvider):
             and row.get("name")
         }))
 
+    def lot_sizes_for_contracts(self, contracts):
+        """Find exact contracts in the loaded Kite master without a market request."""
+        requested = {}
+        for contract in contracts:
+            try:
+                underlying, expiry, strike, side = contract
+                key = (str(underlying).upper(), str(expiry), float(strike), str(side).upper())
+            except (TypeError, ValueError):
+                continue
+            requested[key] = contract
+        found = {}
+        for row in self._instruments or ():
+            if row.get("exchange") not in {"NFO", "BFO"}:
+                continue
+            try:
+                key = (str(row.get("name", "")).upper(), str(row.get("expiry", "")),
+                       float(row.get("strike")), str(row.get("instrument_type", "")).upper())
+                lot_size = int(row.get("lot_size") or 0)
+            except (TypeError, ValueError):
+                continue
+            if key in requested and lot_size > 0:
+                found[requested[key]] = lot_size
+        return found
+
     def _selected_contracts(self, underlying, instruments=None):
         instruments = instruments or self._load_instruments()
         contracts = [
@@ -211,6 +308,10 @@ class KiteOptionProvider(OptionDataProvider):
             quote = quotes.get(quote_key)
             if not quote or not quote.get("last_price"):
                 continue
+            try:
+                lot_size = int(row.get("lot_size") or 0)
+            except (TypeError, ValueError):
+                lot_size = 0
             result.append(
                 OptionContract(
                     symbol=underlying,
@@ -223,9 +324,30 @@ class KiteOptionProvider(OptionDataProvider):
                     implied_volatility=0.0,
                     delta=0.0,
                     theta=0.0,
+                    lot_size=lot_size if lot_size > 0 else None,
                 )
             )
         return result
+
+    @staticmethod
+    def _unusable_quote_keys(quote_keys, quotes):
+        """A present key still needs a usable price and market fields."""
+        unusable = []
+        for key in quote_keys:
+            quote = quotes.get(key)
+            if not isinstance(quote, dict):
+                unusable.append(key)
+                continue
+            try:
+                price = float(quote["last_price"])
+                volume = int(quote.get("volume") or 0)
+                open_interest = int(quote.get("oi") or 0)
+            except (KeyError, TypeError, ValueError, OverflowError):
+                unusable.append(key)
+                continue
+            if not math.isfinite(price) or price <= 0 or volume < 0 or open_interest < 0:
+                unusable.append(key)
+        return unusable
 
     def _cached_or_failed(self, underlying, error, chains):
         cached = [
@@ -299,6 +421,15 @@ class KiteOptionProvider(OptionDataProvider):
             )
 
         for underlying, rows in selected_by_underlying.items():
+            keys = [f"{row['exchange']}:{row['tradingsymbol']}" for row in rows]
+            unusable = self._unusable_quote_keys(keys, quotes)
+            if unusable and underlying not in failed_underlyings:
+                failed_underlyings[underlying] = ValueError(
+                    f"Kite returned an incomplete option chain for {underlying}: "
+                    f"{len(unusable)} quote(s) unusable."
+                )
+
+        for underlying, rows in selected_by_underlying.items():
             if underlying in failed_underlyings:
                 # Never publish a silently partial chain for an underlying.
                 # Its last complete chain is safer; unrelated successful
@@ -353,6 +484,12 @@ class KiteOptionProvider(OptionDataProvider):
             raise ValueError(
                 f"Kite returned an incomplete option chain for {underlying}: "
                 f"{len(missing)} quote(s) missing."
+            )
+        unusable = self._unusable_quote_keys(quote_keys, quotes)
+        if unusable:
+            raise ValueError(
+                f"Kite returned an incomplete option chain for {underlying}: "
+                f"{len(unusable)} quote(s) unusable."
             )
         result = self._contracts_from_quotes(underlying, selected, quotes)
         if not result:

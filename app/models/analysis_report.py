@@ -30,3 +30,5 @@ class AnalysisReport:
     suggested_action: str
 
     invalidation: List[str]
+
+    company_name: str = ""

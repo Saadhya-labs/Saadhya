@@ -102,6 +102,8 @@ class RecommendationReport:
                             "symbol"
                         ),
 
+                    "company_name": details.get("company_name") if isinstance(details, dict) else None,
+
                     "score":
                         item.get(
                             "score"

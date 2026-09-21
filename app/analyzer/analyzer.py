@@ -21,9 +21,18 @@ class StockAnalyzer:
 
     def analyze(self, symbol):
         data = self.provider.get_history(symbol)
-        return self.analyze_dataframe(data, symbol)
+        name_lookup = getattr(self.provider, "get_company_name", None)
+        company_name = ""
+        if callable(name_lookup):
+            try:
+                company_name = name_lookup(symbol)
+            except (KeyError, TypeError, ValueError, RuntimeError):
+                # A display label must not suppress an otherwise usable
+                # cached recommendation while the instrument master reconnects.
+                company_name = ""
+        return self.analyze_dataframe(data, symbol, company_name=company_name)
 
-    def analyze_dataframe(self, data, symbol):
+    def analyze_dataframe(self, data, symbol, company_name=""):
 
         signals = self.signal_engine.generate(data)
 
@@ -42,4 +51,5 @@ class StockAnalyzer:
             signals=signals,
             recommendation=recommendation,
             opportunity_score=opportunity_score,
+            company_name=company_name,
         )

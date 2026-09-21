@@ -68,6 +68,9 @@ masters after a date rollover, so newly listed symbols and expiries become
 available without restarting the application. Empty, malformed, or temporarily
 unavailable daily masters never replace the last complete copy; Saadhya keeps
 using that copy, marks the connection degraded, and retries on the next refresh.
+Derivative masters containing even a partially malformed option contract are
+also rejected before quote batching, so a successful but corrupt download
+cannot replace the last complete contract universe.
 If a rollover download loses more than a fifth of previously listed symbols,
 still-live option contracts overall, or the live contracts for any one
 underlying, Saadhya treats it as truncated and preserves the prior universe.

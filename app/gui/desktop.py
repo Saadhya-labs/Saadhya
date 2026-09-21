@@ -7,6 +7,7 @@ import queue
 import re
 import threading
 import traceback
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 import tkinter as tk
@@ -26,6 +27,21 @@ from app.scanner.opportunity_ranker import OpportunityRanker
 INDEX_UNDERLYINGS = {
     "NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX",
 }
+
+IST = timezone(timedelta(hours=5, minutes=30), name="IST")
+
+
+def display_watchlist_added_at(value):
+    """Display the persisted addition time in IST without inventing legacy dates."""
+    if not value:
+        return "Unavailable"
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(IST).strftime("%Y-%m-%d %H:%M IST")
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def build_option_recommendation_rows(opportunities):
@@ -126,6 +142,26 @@ def recommendation_rationale(item):
         reasons = list(details.get("simple_reasons", []))
         technical = list(details.get("technical_reasons", []))
         reasons.extend(reason for reason in technical if reason not in reasons)
+        signals = details.get("signals") or {}
+        bullish = sum(value == "BUY" for value in signals.values())
+        bearish = sum(value == "SELL" for value in signals.values())
+        neutral = sum(value == "HOLD" for value in signals.values())
+        if signals:
+            reasons.insert(
+                0,
+                f"Signal agreement: {bullish} bullish, {bearish} bearish and "
+                f"{neutral} neutral across {len(signals)} indicators.",
+            )
+            reasons.append(
+                "Indicator state: " + ", ".join(
+                    f"{name}={value}" for name, value in sorted(signals.items())
+                ) + "."
+            )
+        if item.get("score") is not None:
+            reasons.append(
+                f"The relative opportunity score is {float(item['score']):.1f}; "
+                "it ranks this setup against the scanned universe and is not a probability of profit."
+            )
         risks = list(details.get("invalidation", []))
     if not reasons:
         reasons = ["Detailed supporting evidence is unavailable for this recommendation."]
@@ -264,27 +300,28 @@ class SaadhyaDesktopApp(ttk.Frame):
         self.report = None
         self.opportunities = []
         self.mode = tk.StringVar(value="kite")
-        self.symbols = tk.StringVar(value="ALL_FNO")
+        self.symbols = tk.StringVar(value="ALL_NSE_EQUITIES")
         self.auto_refresh = tk.BooleanVar(value=False)
         self.refresh_seconds = tk.StringVar(value="60")
         self._refresh_job = None
         self._provider_cache = {}
+        self._kite_connected = False
         self._option_rows_by_id = {}
         self._option_tables = {}
         self._checked_option_keys = set()
         self.checked_option_count = tk.StringVar(value="0 checked")
         self._latest_quotes = {}
         self._rationale_rows_by_id = {}
+        self._overview_symbols_by_id = {}
         self._watchlist_rows_by_id = {}
         self._checked_watchlist_keys = set()
         self.checked_watchlist_count = tk.StringVar(value="0 checked")
         self.tracking_store = LocalTrackingStore(Path.home() / ".saadhya" / "tracking.json")
         self.tracking_data = self.tracking_store.load()
         self.status = tk.StringVar(
-            value="Ready to scan with the externally configured read-only Kite session. "
-            "Recommendations only; no orders are placed."
+            value="Connect to Kite before scanning. Recommendations only; no orders are placed."
         )
-        self.connection = tk.StringVar(value="KITE / EXTERNAL SESSION")
+        self.connection = tk.StringVar(value="KITE NOT CONNECTED")
         self.option_summary = tk.StringVar(value="Run a scan to load index and stock option recommendations.")
         self._build()
         self.pack(fill="both", expand=True)
@@ -318,8 +355,10 @@ class SaadhyaDesktopApp(ttk.Frame):
         mode_box = ttk.Combobox(controls, textvariable=self.mode, values=("mock", "live", "kite"), state="readonly", width=9)
         mode_box.grid(row=0, column=3, padx=8)
         mode_box.bind("<<ComboboxSelected>>", self._data_mode_changed)
-        self.scan_button = ttk.Button(controls, text="Scan market", command=self.scan)
-        self.scan_button.grid(row=0, column=4, padx=(0, 8))
+        self.connect_button = ttk.Button(controls, text="Connect to Kite", command=self.connect_kite)
+        self.connect_button.grid(row=0, column=4, padx=(0, 8))
+        self.scan_button = ttk.Button(controls, text="Scan market", command=self.scan, state="disabled")
+        self.scan_button.grid(row=0, column=5, padx=(0, 8))
         ttk.Checkbutton(
             controls, text="Auto refresh", variable=self.auto_refresh,
             command=self._refresh_changed,
@@ -353,7 +392,7 @@ class SaadhyaDesktopApp(ttk.Frame):
         table_frame.pack(fill="both", expand=True)
         self.table = ttk.Treeview(table_frame, columns=columns, show="headings", height=12, style="Market.Treeview")
         for name, label, width in (
-            ("rank", "Rank", 60), ("type", "Type", 90), ("symbol", "Symbol", 130),
+            ("rank", "Rank", 60), ("type", "Type", 90), ("symbol", "Company", 220),
             ("recommendation", "Recommendation", 150), ("recommended", "Price at recommendation", 125),
             ("entry", "Entry zone", 120), ("target", "Target", 90),
             ("roi", "Projected ROI", 95), ("score", "Score", 65),
@@ -375,7 +414,7 @@ class SaadhyaDesktopApp(ttk.Frame):
         self.table.tag_configure("avoid", background="#fee2e2", foreground="#991b1b")
         self._add_sort_controls(self.table, (
             ("Score", "score"), ("Projected ROI", "roi"),
-            ("Price at recommendation", "recommended"), ("Symbol", "symbol"),
+            ("Price at recommendation", "recommended"), ("Company", "symbol"),
         ))
 
         details = ttk.LabelFrame(overview, text="Recommendation details and source warnings", padding=8)
@@ -592,6 +631,7 @@ class SaadhyaDesktopApp(ttk.Frame):
         self.watchlist_columns = (
             ("selected", "Remove", 62), ("underlying", "Underlying", 115),
             ("contract", "Contract", 120), ("expiry", "Expiry", 105),
+            ("added", "Date added", 150),
             ("type", "CE/PE", 65), ("strike", "Strike", 80),
             ("reference", "Price at recommendation", 140),
             ("lot", "Lot size", 75), ("value", "One-lot value", 120),
@@ -798,6 +838,7 @@ class SaadhyaDesktopApp(ttk.Frame):
         item_id = table.insert("", "end", values=(
             "☑" if key in self._checked_watchlist_keys else "☐",
             shown(item.get("underlying")), shown(item.get("contract")), shown(item.get("expiry")),
+            display_watchlist_added_at(item.get("added_at")),
             shown(item.get("option_type")), shown(item.get("strike")),
             display_price(item.get("reference_price")), shown(item.get("lot_size")),
             f"₹{lot_value:,.2f}" if lot_value is not None else "Unavailable",
@@ -837,17 +878,48 @@ class SaadhyaDesktopApp(ttk.Frame):
         style.map("Market.Treeview", background=[("selected", accent)], foreground=[("selected", "white")])
 
     def _data_mode_changed(self, _event=None):
-        self.scan_button.configure(state="normal")
         if self.mode.get() == "kite":
-            self.connection.set("KITE / EXTERNAL SESSION")
+            self.connect_button.configure(state="disabled" if self._kite_connected else "normal")
+            self.scan_button.configure(state="normal" if self._kite_connected else "disabled")
+            self.connection.set("KITE CONNECTED" if self._kite_connected else "KITE NOT CONNECTED")
             self.status.set(
-                "Ready to scan with the externally configured read-only Kite session. "
-                "Recommendations only; no orders are placed."
+                "Kite is connected and ready to scan. "
+                if self._kite_connected else
+                "Connect to Kite before scanning. The browser login is required each day."
             )
         else:
+            self.connect_button.configure(state="disabled")
+            self.scan_button.configure(state="normal")
             self.connection.set("OFFLINE / DEMO" if self.mode.get() == "mock" else "LIVE DATA")
 
+    def connect_kite(self):
+        """Start the daily Kite browser login without blocking the desktop UI."""
+        self.connect_button.configure(state="disabled")
+        self.scan_button.configure(state="disabled")
+        self.connection.set("CONNECTING")
+        self.status.set("Opening Kite in your browser. Complete the login there, then return to Saadhya.")
+        threading.Thread(target=self._kite_login_worker, daemon=True).start()
+
+    def _kite_login_worker(self):
+        try:
+            import os
+
+            from app.integrations.kite_login import KiteLogin
+
+            login = KiteLogin(
+                os.environ.get("KITE_API_KEY"),
+                os.environ.get("KITE_API_SECRET"),
+                os.environ.get("KITE_REDIRECT_URL", "http://127.0.0.1:8000/kite/callback"),
+            )
+            login.authenticate()
+            self._queue.put(("kite_login_success",))
+        except Exception as exc:
+            self._queue.put(("kite_login_error", str(exc)))
+
     def scan(self):
+        if self.mode.get() == "kite" and not self._kite_connected:
+            messagebox.showwarning("Saadhya", "Connect to Kite before scanning the market.")
+            return
         symbols = tuple(item.strip().upper() for item in self.symbols.get().split(",") if item.strip())
         if not symbols:
             messagebox.showerror("Saadhya", "Enter at least one symbol, for example HAL.NS.")
@@ -909,6 +981,27 @@ class SaadhyaDesktopApp(ttk.Frame):
             self.after(100, self._poll)
             return
 
+        if message[0] == "kite_login_success":
+            self._kite_connected = True
+            self._provider_cache.pop("kite", None)
+            self.connect_button.configure(state="disabled")
+            self.scan_button.configure(state="normal")
+            self.connection.set("KITE CONNECTED")
+            self.status.set(
+                "Kite connected for today. You can now scan the market. "
+                "Recommendations only; no orders are placed."
+            )
+            self.after(100, self._poll)
+            return
+        if message[0] == "kite_login_error":
+            self._kite_connected = False
+            self.connect_button.configure(state="normal")
+            self.scan_button.configure(state="disabled")
+            self.connection.set("KITE NOT CONNECTED")
+            self.status.set("Kite connection failed. Check the details and try Connect to Kite again.")
+            self._set_details(message[1])
+            self.after(100, self._poll)
+            return
         if message[0] == "error":
             self._mark_latest_scan_unavailable()
             retry = (
@@ -947,6 +1040,7 @@ class SaadhyaDesktopApp(ttk.Frame):
 
     def _render_report(self, rendered):
         self.table.delete(*self.table.get_children())
+        self._overview_symbols_by_id = {}
         stocks = stock_overview_opportunities(self.opportunities)
         stock_report = RecommendationReport(limit=10).generate(stocks)
         stock_count = sum(item.get("type") == "STOCK" for item in self.opportunities)
@@ -967,13 +1061,15 @@ class SaadhyaDesktopApp(ttk.Frame):
             current = item.get("current_price")
             target = item.get("target")
             roi = item.get("projected_roi_pct")
-            self.table.insert("", "end", values=(
-                item["rank"], item["type"], item["symbol"], recommendation,
+            company_name = item.get("company_name") or item["symbol"]
+            item_id = self.table.insert("", "end", values=(
+                item["rank"], item["type"], company_name, recommendation,
                 "—" if current is None else f"₹{float(current):.2f}", entry_text,
                 "—" if target is None else f"₹{float(target):.2f}",
                 "—" if roi is None else f"{float(roi):+.2f}%",
                 item["score"], item["risk"], item.get("news_impact", "UNAVAILABLE"),
             ), tags=(tag,))
+            self._overview_symbols_by_id[item_id] = item["symbol"]
         self._set_details(
             "Market overview contains stocks only. Select a stock row for its details. "
             "The JSON report retains the complete scan, including options.\n\n" + rendered
@@ -1178,7 +1274,8 @@ class SaadhyaDesktopApp(ttk.Frame):
                 )
                 target_text = "—" if target is None else f"₹{float(target):.2f}"
                 assessment = str(details.get("recommendation") or item.get("rating") or "WATCH")
-                label = str(item.get("symbol", "—"))
+                company_name = details.get("company_name") or item.get("symbol", "—")
+                label = f"{company_name} ({item.get('symbol', '—')})"
                 expiry = "—"
             if item.get("type") == "OPTION":
                 table = option_tables.get(expiry)
@@ -1308,13 +1405,13 @@ class SaadhyaDesktopApp(ttk.Frame):
         if not selection:
             return
         values = self.table.item(selection[0], "values")
-        symbol = values[2]
+        symbol = getattr(self, "_overview_symbols_by_id", {}).get(selection[0], values[2])
         matches = [item for item in self.opportunities if item["symbol"] == symbol]
         warnings = []
         for item in matches:
             warnings.extend(item.get("details", {}).get("warnings", []))
         content = (
-            f"{values[2]}\n{values[3]}\nPrice at recommendation: {values[4]} | "
+            f"{values[2]} ({symbol})\n{values[3]}\nPrice at recommendation: {values[4]} | "
             f"Entry: {values[5]} | Target: {values[6]} | Projected ROI: {values[7]}\n"
             f"Score: {values[8]} | Risk: {values[9]}\n"
             f"News impact: {values[10]}"

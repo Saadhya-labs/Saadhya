@@ -1,5 +1,7 @@
 """Recommendation-only option scanner across the next three expiries."""
 
+from datetime import date
+
 import requests
 
 from app.reports.option_report_formatter import OptionReportFormatter
@@ -30,6 +32,19 @@ class OptionMarketScanner:
     @staticmethod
     def _underlying(symbol):
         return symbol.upper().replace(".NS", "").replace("NSE:", "")
+
+    @staticmethod
+    def _expiry_group(underlying, expiry):
+        """Classify known dated contracts without rejecting provider labels."""
+        try:
+            expiry_date = date.fromisoformat(str(expiry))
+        except (TypeError, ValueError):
+            return "MONTHLY"
+        return (
+            "QUARTERLY"
+            if underlying == "NIFTY" and expiry_date.month in {3, 6, 9, 12}
+            else "MONTHLY"
+        )
 
     def scan(self):
         opportunities = []
@@ -188,11 +203,7 @@ class OptionMarketScanner:
                         "explanation": explanation,
                         "expiry": expiry,
                         "expiry_rank": expiry_rank,
-                        "expiry_group": (
-                            "QUARTERLY"
-                            if underlying == "NIFTY" and int(expiry[5:7]) in {3, 6, 9, 12}
-                            else "MONTHLY"
-                        ),
+                        "expiry_group": self._expiry_group(underlying, expiry),
                         "data_status": "cached" if is_cached else "fresh",
                         "updated_at": getattr(
                             self.option_provider, "chain_updated_at", {}

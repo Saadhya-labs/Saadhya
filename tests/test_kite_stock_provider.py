@@ -63,6 +63,21 @@ def test_kite_provider_uses_read_only_market_endpoints(tmp_path):
     assert all("/orders" not in call[0] for call in session.calls)
 
 
+def test_kite_provider_exposes_company_name_from_instrument_master(tmp_path):
+    session = Session()
+    provider = KiteStockProvider(
+        "key", "token", session=session,
+        now=lambda: datetime(2026, 2, 1, tzinfo=timezone.utc),
+        history_cache_dir=tmp_path,
+    )
+    provider._instruments = [{
+        "tradingsymbol": "HAL", "instrument_type": "EQ",
+        "name": "HINDUSTAN AERONAUTICS LIMITED",
+    }]
+    provider._instruments_date = datetime(2026, 2, 1, tzinfo=timezone.utc).date()
+    assert provider.get_company_name("HAL.NS") == "HINDUSTAN AERONAUTICS LIMITED"
+
+
 def test_kite_provider_reuses_last_history_during_reconnect(tmp_path):
     session = Session()
     clock = [datetime(2026, 2, 1, tzinfo=timezone.utc)]

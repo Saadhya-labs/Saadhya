@@ -4,7 +4,7 @@ from app.models.analysis_report import AnalysisReport
 class AnalysisReportBuilder:
     """Builds stock-analysis reports from already computed results."""
 
-    def build(self, symbol, price, signals, recommendation, opportunity_score):
+    def build(self, symbol, price, signals, recommendation, opportunity_score, company_name=""):
         return AnalysisReport(
             symbol=symbol,
             price=float(price),
@@ -19,4 +19,5 @@ class AnalysisReportBuilder:
             technical_reasons=recommendation.get("technical_reasons", []),
             suggested_action=recommendation.get("suggested_action", ""),
             invalidation=recommendation.get("invalidation", []),
+            company_name=company_name,
         )

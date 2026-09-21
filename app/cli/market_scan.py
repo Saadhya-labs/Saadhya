@@ -31,6 +31,7 @@ class _CachedStockScanner:
             decision = decision_engine.calculate(report)
             results.append({
                 "symbol": report.symbol,
+                "company_name": report.company_name or report.symbol,
                 "score": report.opportunity_score.get("total", 0),
                 "direction": report.direction,
                 "confidence": report.confidence,

@@ -176,6 +176,17 @@ class KiteStockProvider(StockDataProvider):
             if row.get("instrument_type") == "EQ" and row.get("tradingsymbol")
         )
 
+    def get_company_name(self, symbol):
+        """Return Kite's instrument name for an exact NSE equity symbol."""
+        trading_symbol = self._trading_symbol(symbol)
+        for row in self._load_instruments():
+            if (
+                row.get("tradingsymbol") == trading_symbol
+                and row.get("instrument_type") == "EQ"
+            ):
+                return (row.get("name") or trading_symbol).strip()
+        return trading_symbol
+
     def _period_start(self, period):
         periods = {
             "5d": timedelta(days=7),

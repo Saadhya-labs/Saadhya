@@ -87,6 +87,42 @@ class KiteOptionProvider(OptionDataProvider):
                     time.sleep(0.25 * (2**attempt))
         raise RuntimeError(f"Kite option data is temporarily unavailable: {last_error}") from last_error
 
+    @staticmethod
+    def _validate_option_instrument_master(instruments):
+        """Reject a successful download containing malformed option contracts.
+
+        The all-instruments endpoint also contains cash, futures, currency, and
+        commodity rows, so only NSE/BSE option records belong to this check.
+        A single malformed option row can otherwise fail quote planning after
+        the new master has already replaced the last-known-good copy.
+        """
+        option_rows = [
+            row for row in instruments
+            if row.get("exchange") in {"NFO", "BFO"}
+            and row.get("instrument_type") in {"CE", "PE"}
+        ]
+        if not option_rows:
+            raise ValueError("Kite returned an empty or malformed option instrument master.")
+
+        for row in option_rows:
+            if not row.get("tradingsymbol") or not row.get("name") or not row.get("expiry"):
+                raise ValueError(
+                    "Kite returned an option instrument master with incomplete contracts."
+                )
+            try:
+                date.fromisoformat(row["expiry"])
+                strike = float(row["strike"])
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    "Kite returned an option instrument master with malformed contracts."
+                ) from exc
+            if not math.isfinite(strike) or strike < 0:
+                raise ValueError(
+                    "Kite returned an option instrument master with malformed contracts."
+                )
+
+        return option_rows
+
     def _load_instruments(self):
         current_date = self._today()
         if self._instruments is None or self._instruments_date != current_date:
@@ -94,17 +130,7 @@ class KiteOptionProvider(OptionDataProvider):
                 instruments = list(
                     csv.DictReader(StringIO(self._get("/instruments").text))
                 )
-                if not any(
-                    row.get("exchange") in {"NFO", "BFO"}
-                    and row.get("tradingsymbol")
-                    and row.get("name")
-                    and row.get("expiry")
-                    and row.get("instrument_type") in {"CE", "PE"}
-                    for row in instruments
-                ):
-                    raise ValueError(
-                        "Kite returned an empty or malformed option instrument master."
-                    )
+                self._validate_option_instrument_master(instruments)
                 if self._instruments is not None:
                     previous = {
                         row.get("name") for row in self._instruments

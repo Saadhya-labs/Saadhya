@@ -171,6 +171,57 @@ def test_kite_option_provider_keeps_full_universe_when_rollover_master_is_trunca
     assert provider.instrument_master_stale is False
 
 
+def test_kite_option_provider_rejects_partially_malformed_initial_master():
+    class MalformedSession:
+        def get(self, url, **_kwargs):
+            assert url.endswith("/instruments")
+            return Response(
+                "exchange,tradingsymbol,name,expiry,strike,instrument_type\n"
+                "NFO,HAL26SEP100CE,HAL,2026-09-24,100,CE\n"
+                "NFO,TCS26SEPCE,TCS,not-a-date,invalid,CE\n"
+            )
+
+    provider = KiteOptionProvider(
+        "key", "token", session=MalformedSession(),
+        today=lambda: date(2026, 9, 1), retries=1,
+    )
+
+    with pytest.raises(ValueError, match="malformed contracts"):
+        provider.available_fno_underlyings()
+
+
+def test_kite_option_provider_keeps_last_master_when_refresh_has_malformed_row():
+    class RolloverSession:
+        malformed = False
+
+        def get(self, url, **_kwargs):
+            assert url.endswith("/instruments")
+            second = (
+                "NFO,TCS26SEPCE,TCS,2026-09-24,not-a-number,CE\n"
+                if self.malformed else
+                "NFO,TCS26SEP100CE,TCS,2026-09-24,100,CE\n"
+            )
+            return Response(
+                "exchange,tradingsymbol,name,expiry,strike,instrument_type\n"
+                "NFO,HAL26SEP100CE,HAL,2026-09-24,100,CE\n" + second
+            )
+
+    session = RolloverSession()
+    current_day = [date(2026, 9, 1)]
+    provider = KiteOptionProvider(
+        "key", "token", session=session,
+        today=lambda: current_day[0], retries=1,
+    )
+    assert provider.available_fno_underlyings() == ("HAL", "TCS")
+
+    current_day[0] = date(2026, 9, 2)
+    session.malformed = True
+
+    assert provider.available_fno_underlyings() == ("HAL", "TCS")
+    assert provider.instrument_master_stale is True
+    assert "malformed contracts" in provider.instrument_master_error
+
+
 def test_kite_option_provider_rejects_missing_strikes_with_names_intact():
     class RolloverSession:
         strikes = range(5)

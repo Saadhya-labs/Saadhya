@@ -182,36 +182,45 @@ def test_watchlist_row_shows_underlying_and_recommendation_details():
         "reference_price": 100, "current_price": 110, "lot_size": 75,
         "one_lot_premium": 7500, "entry": "₹90–110", "target": "₹150–200",
         "projected_roi_pct": 50, "invalidation": "₹70", "score": 85,
-        "assessment": "STRONG SETUP",
+        "assessment": "STRONG SETUP", "added_at": "2026-09-17T06:33:40+00:00",
     }
     SaadhyaDesktopApp._insert_watchlist_row(app, table, item)
     assert table.values[1:4] == ("NIFTY", "25000 CE", "2026-09-29")
+    assert table.values[4] == "2026-09-17 12:03 IST"
     assert "₹7,500.00" in table.values
     assert "85.0 · STRONG SETUP" in table.values
 
 
-def test_kite_mode_uses_externally_configured_session_without_login_gate():
+def test_legacy_watchlist_without_added_time_is_explicitly_unavailable():
+    from app.gui.desktop import display_watchlist_added_at
+
+    assert display_watchlist_added_at(None) == "Unavailable"
+
+
+def test_kite_mode_requires_daily_browser_connection_before_scan():
     from app.gui.desktop import SaadhyaDesktopApp
 
     app = SimpleNamespace(
         mode=Variable("kite"),
         scan_button=Button("disabled"),
+        connect_button=Button("disabled"),
+        _kite_connected=False,
         connection=Variable(),
         status=Variable(),
     )
 
     SaadhyaDesktopApp._data_mode_changed(app)
 
-    assert app.scan_button.state == "normal"
-    assert app.connection.get() == "KITE / EXTERNAL SESSION"
-    assert "externally configured" in app.status.get()
+    assert app.scan_button.state == "disabled"
+    assert app.connect_button.state == "normal"
+    assert app.connection.get() == "KITE NOT CONNECTED"
+    assert "each day" in app.status.get()
 
     source = (PROJECT_ROOT / "app/gui/desktop.py").read_text(encoding="utf-8")
-    assert "KiteLogin" not in source
-    assert "connect_kite" not in source
-    assert "KITE_API_SECRET" not in source
-    assert 'self.symbols = tk.StringVar(value="ALL_FNO")' in source
-    assert not (PROJECT_ROOT / "app/integrations/kite_login.py").exists()
+    assert "KiteLogin" in source
+    assert "connect_kite" in source
+    assert 'self.symbols = tk.StringVar(value="ALL_NSE_EQUITIES")' in source
+    assert (PROJECT_ROOT / "app/integrations/kite_login.py").exists()
 
 
 def test_projected_roi_and_rationale_use_existing_analysis_evidence():

@@ -119,6 +119,24 @@ def test_scanner_returns_one_recommendation_for_each_of_three_expiries():
     }]
 
 
+def test_scanner_accepts_symbolic_expiry_labels_without_crashing():
+    class OneStock:
+        def scan(self):
+            return [{"symbol": "NIFTY"}]
+
+    scanner = OptionMarketScanner(
+        OneStock(), DummyAnalyzer(), MockOptionProvider(), OptionScanner(),
+        ProbabilityEngine(), DummyMarketRegime(),
+    )
+
+    recommendations = scanner.scan()
+
+    assert [item["expiry"] for item in recommendations] == [
+        "CURRENT_MONTH", "NEXT_MONTH"
+    ]
+    assert {item["expiry_group"] for item in recommendations} == {"MONTHLY"}
+
+
 def test_scanner_prefetches_all_underlyings_through_batch_provider():
     class TwoStocks:
         def scan(self):

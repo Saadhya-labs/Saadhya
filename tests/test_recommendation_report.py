@@ -99,3 +99,18 @@ def test_recommendation_report_preserves_price_roi_and_existing_reasons():
     assert row["projected_roi_pct"] == 12.0
     assert row["reasons"] == ["Trend is strengthening.", "MACD Bullish"]
     assert projected_roi(100, 90, "SELL") == 10.0
+
+
+def test_recommendation_report_preserves_company_name_for_desktop_display():
+    opportunity = {
+        "rank": 1,
+        "type": "STOCK",
+        "symbol": "HAL.NS",
+        "score": 80,
+        "details": {"company_name": "HINDUSTAN AERONAUTICS LIMITED"},
+    }
+
+    row = RecommendationReport().generate([opportunity])["top_opportunities"][0]
+
+    assert row["symbol"] == "HAL.NS"
+    assert row["company_name"] == "HINDUSTAN AERONAUTICS LIMITED"
